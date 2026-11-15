@@ -8,14 +8,21 @@ export const MIGRATIONS_DIR = fileURLToPath(new URL('../../../supabase/migration
 
 /**
  * Minimal stand-in for what hosted Supabase provides before any project migration runs:
- * the API roles, an `auth` schema with `auth.users`, and `auth.uid()` reading the JWT `sub`
- * claim the same way Supabase does. The migrations themselves run unchanged on top of this.
+ * the API roles, the permissive default privileges in `public` (as on a project with
+ * auto-expose on: the worst case for the migration's revokes), an `auth` schema with
+ * `auth.users`, and `auth.uid()` reading the JWT `sub` claim the same way Supabase does.
+ * The migrations themselves run unchanged on top of this.
  */
 const SUPABASE_STUB = `
   create role anon nologin noinherit;
   create role authenticated nologin noinherit;
   create role service_role nologin noinherit bypassrls;
   grant usage on schema public to anon, authenticated, service_role;
+  -- Hosted Supabase's default privileges for objects postgres creates in public. With these in
+  -- place, anything the API roles can't do is down to the migration's own revokes.
+  alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
+  alter default privileges in schema public grant all on functions to anon, authenticated, service_role;
+  alter default privileges in schema public grant all on sequences to anon, authenticated, service_role;
 
   create schema auth;
   grant usage on schema auth to anon, authenticated, service_role;

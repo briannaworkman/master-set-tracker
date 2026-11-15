@@ -3,8 +3,20 @@
 -- Conflict rule: last-write-wins per row by client updated_at; on an exact tie the server row wins.
 -- Pull cursor: server_seq from one global sequence, set by trigger on every insert/update.
 -- Rows are never hard-deleted: count = 0 and tracked_sets.removed_at are the tombstones.
+-- Timestamps are stored and exchanged at millisecond precision (enforced by CHECKs and by
+-- push_changes, which accepts at most 3 fractional digits).
 --
--- The hosted project does not auto-expose new objects, so every grant is explicit here:
+-- Cursor invariant: for any one user, server_seq order equals commit order. nextval() runs when
+-- a row is written, not when it commits, so two concurrent transactions for the same user could
+-- otherwise commit out of seq order (T1 takes 100, T2 takes 101 and commits first, a device pulls
+-- to cursor 101, then T1 commits 100 and that device never sees it). set_server_seq() takes a
+-- per-user transaction-scoped advisory lock before nextval(), held until commit/rollback, so a
+-- second writer for the same user waits until the first has committed. Different users never
+-- block each other (barring a hashtext collision, which only serializes, never reorders), and a
+-- pull filters on one user, so per-user ordering is all the cursor needs.
+--
+-- The hosted project does not auto-expose new objects, so every grant is explicit here, and
+-- every object first has all privileges revoked so the result is the same either way:
 -- anon gets nothing; authenticated gets exactly what the app needs.
 
 -- ---------------------------------------------------------------------------
@@ -12,21 +24,23 @@
 -- ---------------------------------------------------------------------------
 
 create sequence public.sync_seq;
-revoke all on sequence public.sync_seq from public, anon, authenticated;
+revoke all on sequence public.sync_seq from public, anon, authenticated, service_role;
 
 -- security definer so callers need no privilege on the sequence; always overrides any
--- client-supplied server_seq.
+-- client-supplied server_seq. The advisory lock upholds the cursor invariant (see header): it
+-- is held until the transaction ends, so per user, seq order equals commit order.
 create function public.set_server_seq() returns trigger
   language plpgsql
   security definer
   set search_path = ''
 as $$
 begin
+  perform pg_advisory_xact_lock(hashtext(new.user_id::text));
   new.server_seq := nextval('public.sync_seq');
   return new;
 end;
 $$;
-revoke all on function public.set_server_seq() from public, anon, authenticated;
+revoke all on function public.set_server_seq() from public, anon, authenticated, service_role;
 
 -- ---------------------------------------------------------------------------
 -- Tables
@@ -47,7 +61,13 @@ create table public.tracked_sets (
   removed_at timestamptz,
   updated_at timestamptz not null,
   server_seq bigint not null,
-  primary key (user_id, set_id)
+  primary key (user_id, set_id),
+  constraint tracked_sets_hidden_is_array check (jsonb_typeof(hidden_category_ids) = 'array'),
+  constraint tracked_sets_ms_precision check (
+    added_at at time zone 'UTC' = date_trunc('milliseconds', added_at at time zone 'UTC')
+    and updated_at at time zone 'UTC' = date_trunc('milliseconds', updated_at at time zone 'UTC')
+    and (removed_at is null
+         or removed_at at time zone 'UTC' = date_trunc('milliseconds', removed_at at time zone 'UTC')))
 );
 
 create table public.collection (
@@ -58,7 +78,9 @@ create table public.collection (
   count int not null check (count between 0 and 999),
   updated_at timestamptz not null,
   server_seq bigint not null,
-  primary key (user_id, card_id, kind)
+  primary key (user_id, card_id, kind),
+  constraint collection_ms_precision check (
+    updated_at at time zone 'UTC' = date_trunc('milliseconds', updated_at at time zone 'UTC'))
 );
 
 create index tracked_sets_user_seq_idx on public.tracked_sets (user_id, server_seq);
@@ -80,29 +102,35 @@ alter table public.profiles enable row level security;
 alter table public.tracked_sets enable row level security;
 alter table public.collection enable row level security;
 
-revoke all on table public.profiles, public.tracked_sets, public.collection from anon, authenticated;
+revoke all on table public.profiles, public.tracked_sets, public.collection
+  from anon, authenticated, service_role;
 
 grant select on table public.profiles to authenticated;
 grant select, insert, update on table public.tracked_sets, public.collection to authenticated;
 grant select, insert, update, delete on table public.profiles, public.tracked_sets, public.collection
   to service_role;
 
+-- (select auth.uid()) is evaluated once per statement instead of per row (Supabase advisor).
 create policy profiles_select_own on public.profiles
-  for select to authenticated using (user_id = auth.uid());
+  for select to authenticated using (user_id = (select auth.uid()));
 
 create policy tracked_sets_select_own on public.tracked_sets
-  for select to authenticated using (user_id = auth.uid());
+  for select to authenticated using (user_id = (select auth.uid()));
 create policy tracked_sets_insert_own on public.tracked_sets
-  for insert to authenticated with check (user_id = auth.uid());
+  for insert to authenticated with check (user_id = (select auth.uid()));
 create policy tracked_sets_update_own on public.tracked_sets
-  for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+  for update to authenticated
+  using (user_id = (select auth.uid()))
+  with check (user_id = (select auth.uid()));
 
 create policy collection_select_own on public.collection
-  for select to authenticated using (user_id = auth.uid());
+  for select to authenticated using (user_id = (select auth.uid()));
 create policy collection_insert_own on public.collection
-  for insert to authenticated with check (user_id = auth.uid());
+  for insert to authenticated with check (user_id = (select auth.uid()));
 create policy collection_update_own on public.collection
-  for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+  for update to authenticated
+  using (user_id = (select auth.uid()))
+  with check (user_id = (select auth.uid()));
 
 -- ---------------------------------------------------------------------------
 -- Profiles on signup
@@ -128,7 +156,7 @@ begin
   return code;
 end;
 $$;
-revoke all on function public.generate_share_code() from public, anon, authenticated;
+revoke all on function public.generate_share_code() from public, anon, authenticated, service_role;
 
 create function public.handle_new_user() returns trigger
   language plpgsql
@@ -149,7 +177,7 @@ begin
   raise exception 'could not generate a unique share code for user %', new.id;
 end;
 $$;
-revoke all on function public.handle_new_user() from public, anon, authenticated;
+revoke all on function public.handle_new_user() from public, anon, authenticated, service_role;
 
 create trigger on_auth_user_created
   after insert on auth.users
@@ -176,8 +204,9 @@ declare
   f text;
   bad text;
   -- Explicit offset required, so no value depends on the session TimeZone; Postgres literals
-  -- such as 'now' or 'yesterday' are rejected. The cast below then checks ranges.
-  iso constant text := '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}(:?\d{2})?)$';
+  -- such as 'now' or 'yesterday' are rejected; at most millisecond precision (3 fractional
+  -- digits), matching the table CHECKs. The cast below then checks ranges.
+  iso constant text := '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?(Z|[+-]\d{2}(:?\d{2})?)$';
   collection_applied int := 0;
   tracked_applied int := 0;
 begin
@@ -371,7 +400,7 @@ begin
 end;
 $$;
 
-revoke all on function public.push_changes(jsonb, jsonb) from public, anon;
-revoke all on function public.pull_changes(bigint, int) from public, anon;
+revoke all on function public.push_changes(jsonb, jsonb) from public, anon, authenticated, service_role;
+revoke all on function public.pull_changes(bigint, int) from public, anon, authenticated, service_role;
 grant execute on function public.push_changes(jsonb, jsonb) to authenticated;
 grant execute on function public.pull_changes(bigint, int) to authenticated;

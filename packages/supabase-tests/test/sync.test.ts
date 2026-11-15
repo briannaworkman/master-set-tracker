@@ -158,7 +158,7 @@ describe('sync schema', () => {
       asUser(db, bob, (tx) =>
         tx.query(
           `insert into public.collection(user_id, card_id, kind, set_id, count, updated_at)
-           values ($1, 'sv1-2', 'normal', 'sv1', 1, now())`,
+           values ($1, 'sv1-2', 'normal', 'sv1', 1, '2026-11-16T10:00:00.001Z')`,
           [alice],
         ),
       ),
@@ -249,7 +249,7 @@ describe('sync schema', () => {
       asUser(db, alice, (tx) =>
         tx.query(
           `insert into public.collection(user_id, card_id, kind, set_id, count, updated_at)
-           values ($1, 'sv1-1', 'normal', 'sv1', 1000, now())`,
+           values ($1, 'sv1-1', 'normal', 'sv1', 1000, '2026-11-16T10:00:00.001Z')`,
           [alice],
         ),
       ),
@@ -375,6 +375,134 @@ describe('sync schema', () => {
         updated_at: T2,
         server_seq: p.tracked[0]!.server_seq,
       },
+    ]);
+  });
+  it('serializes server_seq assignment per user with a transaction-scoped advisory lock', async () => {
+    // PGlite is single-connection, so the race can't be reproduced; assert the mechanism instead.
+    const src = await db.query<{ src: string }>(
+      "select prosrc as src from pg_proc where oid = 'public.set_server_seq()'::regprocedure",
+    );
+    expect(src.rows[0]!.src).toContain('pg_advisory_xact_lock(hashtext(new.user_id::text))');
+
+    const locks = await asUser(db, alice, async (tx) => {
+      await push(tx, [card('sv1-1', 1, T1)]);
+      const r = await tx.query<{ n: number }>(
+        "select count(*)::int as n from pg_locks where locktype = 'advisory' and granted",
+      );
+      return r.rows[0]!.n;
+    });
+    expect(locks).toBeGreaterThanOrEqual(1);
+    const after = await db.query<{ n: number }>(
+      "select count(*)::int as n from pg_locks where locktype = 'advisory'",
+    );
+    expect(after.rows[0]!.n).toBe(0); // released at commit
+  });
+
+  it('leaves server_seq untouched when a push is rejected by LWW or a tie', async () => {
+    await asUser(db, alice, (tx) => push(tx, [card('sv1-1', 2, T2)], [tracked('sv1', T2)]));
+    const before = await asUser(db, alice, (tx) => pull(tx, 0));
+    await asUser(db, alice, (tx) => push(tx, [card('sv1-1', 5, T1)], [tracked('sv1', T1)])); // older
+    await asUser(db, alice, (tx) => push(tx, [card('sv1-1', 6, T2)], [tracked('sv1', T2)])); // tie
+    const after = await asUser(db, alice, (tx) => pull(tx, 0));
+    expect(after).toEqual(before);
+    const since = await asUser(db, alice, (tx) => pull(tx, before.next_cursor));
+    expect(since.collection).toEqual([]);
+    expect(since.tracked).toEqual([]);
+  });
+
+  it('refuses moving a row to another user and refuses deletes', async () => {
+    await asUser(db, alice, (tx) => push(tx, [card('sv1-1', 1, T1)], [tracked('sv1', T1)]));
+    await expect(
+      asUser(db, alice, (tx) => tx.query('update public.collection set user_id = $1', [bob])),
+    ).rejects.toThrow(/row-level security/);
+    await expect(
+      asUser(db, alice, (tx) => tx.query('update public.tracked_sets set user_id = $1', [bob])),
+    ).rejects.toThrow(/row-level security/);
+    await expect(
+      asUser(db, alice, (tx) => tx.query('delete from public.collection')),
+    ).rejects.toThrow(/permission denied/);
+    await expect(
+      asUser(db, alice, (tx) => tx.query('delete from public.tracked_sets')),
+    ).rejects.toThrow(/permission denied/);
+    expect(await countOf(db, alice, 'sv1-1')).toBe(1);
+  });
+
+  it('revokes the hosted default privileges from API roles', async () => {
+    // Sanity: the harness grants like hosted Supabase's default privileges do...
+    await db.exec('create table public.probe (id int)');
+    const probe = await asAnon(db, async (tx) => (await tx.query('select * from public.probe')).rows);
+    expect(probe).toEqual([]);
+    // ...so these failures come from the migration's revokes.
+    await expect(
+      asUser(db, alice, (tx) => tx.query('select public.generate_share_code()')),
+    ).rejects.toThrow(/permission denied/);
+    await expect(
+      asUser(db, alice, (tx) => tx.query("select nextval('public.sync_seq')")),
+    ).rejects.toThrow(/permission denied/);
+    await expect(
+      asUser(db, alice, (tx) => tx.query('truncate public.collection')),
+    ).rejects.toThrow(/permission denied/);
+    await expect(
+      asUser(db, alice, (tx) => tx.query('update public.profiles set display_name = $1', ['x'])),
+    ).rejects.toThrow(/permission denied/);
+    await expect(
+      asAnon(db, (tx) => tx.query("select nextval('public.sync_seq')")),
+    ).rejects.toThrow(/permission denied/);
+  });
+
+  it('uses (select auth.uid()) in every policy', async () => {
+    const r = await db.query<{ policyname: string; expr: string }>(
+      `select policyname, coalesce(qual, '') || ' ' || coalesce(with_check, '') as expr
+       from pg_policies where schemaname = 'public'`,
+    );
+    expect(r.rows.length).toBeGreaterThanOrEqual(7);
+    for (const row of r.rows) {
+      expect(row.expr, row.policyname).toMatch(/\( SELECT auth\.uid\(\)/);
+    }
+  });
+
+  it('requires hidden_category_ids to be a JSON array at the table level', async () => {
+    await expect(
+      asUser(db, alice, (tx) =>
+        tx.query(
+          `insert into public.tracked_sets(user_id, set_id, hidden_category_ids, added_at, updated_at)
+           values ($1, 'sv1', '{}', $2, $2)`,
+          [alice, T1],
+        ),
+      ),
+    ).rejects.toThrow(/check constraint/);
+  });
+
+  it('keeps timestamps at millisecond precision end to end', async () => {
+    await expect(
+      asUser(db, alice, (tx) => push(tx, [card('sv1-1', 1, '2026-11-16T10:00:00.0011Z')])),
+    ).rejects.toThrow(/updated_at/);
+    await expect(
+      asUser(db, alice, (tx) =>
+        push(tx, [], [tracked('sv1', T1, { added_at: '2026-11-16T10:00:00.000001Z' })]),
+      ),
+    ).rejects.toThrow(/added_at/);
+    // Direct table writes can't sneak sub-millisecond values in either.
+    for (const sql of [
+      `insert into public.collection(user_id, card_id, kind, set_id, count, updated_at)
+       values ($1, 'sv1-1', 'normal', 'sv1', 1, '2026-11-16T10:00:00.0001Z')`,
+      `insert into public.tracked_sets(user_id, set_id, added_at, updated_at)
+       values ($1, 'sv1', '2026-11-16T10:00:00.0001Z', '2026-11-16T10:00:00.001Z')`,
+      `insert into public.tracked_sets(user_id, set_id, added_at, removed_at, updated_at)
+       values ($1, 'sv1', '2026-11-16T10:00:00.001Z', '2026-11-16T10:00:00.0001Z', '2026-11-16T10:00:00.001Z')`,
+    ]) {
+      await expect(asUser(db, alice, (tx) => tx.query(sql, [alice]))).rejects.toThrow(
+        /check constraint/,
+      );
+    }
+    // Fewer digits and other offsets are fine and come back normalized to UTC milliseconds.
+    await asUser(db, alice, (tx) =>
+      push(tx, [card('sv1-1', 1, '2026-11-16T10:00:00.1Z'), card('sv1-2', 1, '2026-11-16T12:00:00+02:00')]),
+    );
+    const p = await asUser(db, alice, (tx) => pull(tx, 0));
+    expect(p.collection.map((r) => r.updated_at)).toEqual([
+      '2026-11-16T10:00:00.100Z',
+      '2026-11-16T10:00:00.000Z',
     ]);
   });
 });
