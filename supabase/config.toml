@@ -432,3 +432,8 @@ enabled = true
 # The Vault secret `service_role_key` must hold exactly the value the function sees as
 # SUPABASE_SERVICE_ROLE_KEY.
 verify_jwt = false
+
+[functions.delete-account]
+# Called by the app with the signed-in user's own JWT, so the gateway verifies it; the function
+# then re-verifies it with the service-role client and deletes only that user.
+verify_jwt = true
