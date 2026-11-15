@@ -654,6 +654,56 @@ describe('SyncEngine.stop', () => {
   });
 });
 
+describe('SyncEngine first syncing emission', () => {
+  it('a listener calling syncNow on the first syncing emission joins the in-flight run', async () => {
+    const server = new FakeSyncRemote();
+    const a = makeDevice(server, 'memory');
+    let active = 0;
+    let maxActive = 0;
+    server.beforePull = async () => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((r) => setTimeout(r, 0));
+      active -= 1;
+    };
+    const joined: Promise<SyncStatus>[] = [];
+    a.engine.subscribe((s) => {
+      if (s.state === 'syncing' && joined.length === 0) joined.push(a.engine.syncNow());
+    });
+    a.store.tap('s1', 's1-001', 'normal');
+    const run = a.engine.syncNow();
+    expect(joined).toHaveLength(1);
+    expect(joined[0]).toBe(run);
+    expect(await run).toMatchObject({ state: 'idle', pending: 0 });
+    expect(maxActive).toBe(1);
+    expect(server.pushCalls).toHaveLength(1);
+    expect(server.pullCalls).toHaveLength(1);
+  });
+
+  it('a listener calling stop() on the first syncing emission waits for the run to unwind', async () => {
+    const server = new FakeSyncRemote();
+    const a = makeDevice(server, 'sqlite');
+    let stopped: Promise<void> | null = null;
+    a.engine.subscribe((s) => {
+      if (s.state === 'syncing' && !stopped) stopped = a.engine.stop();
+    });
+    a.store.tap('s1', 's1-001', 'normal');
+    let runSettled = false;
+    const run = a.engine.syncNow().then((st) => {
+      runSettled = true;
+      return st;
+    });
+    expect(stopped).not.toBeNull();
+    await stopped;
+    expect(runSettled).toBe(true);
+    await run;
+    expect(server.pushCalls).toHaveLength(0);
+    expect(server.pullCalls).toHaveLength(0);
+    expect(a.repo.dirtyCount()).toBe(1);
+    expect(a.engine.getStatus()).toEqual({ state: 'idle', lastSyncedAt: null, pending: 1 });
+  });
+});
+
 describe('SyncEngine robustness', () => {
   it('never rejects syncNow when dirtyCount throws during status bookkeeping', async () => {
     const repo = createMemoryRepo();

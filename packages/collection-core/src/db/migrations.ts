@@ -42,6 +42,11 @@ CREATE TABLE prices (
 );
 `;
 
+/** v4: which signed-in user the local data belongs to, so a different account's sign-in is detected. */
+const SCHEMA_V4 = `
+ALTER TABLE sync_state ADD COLUMN owner TEXT;
+`;
+
 /** Step N upgrades a database at user_version N-1 to N. Each step runs in its own transaction. */
 const STEPS: Array<(db: SqlDb) => void> = [
   (db) => db.exec(SCHEMA_V1),
@@ -50,6 +55,7 @@ const STEPS: Array<(db: SqlDb) => void> = [
     db.run('UPDATE tracked_sets SET updated_at = added_at');
   },
   (db) => db.exec(SCHEMA_V3),
+  (db) => db.exec(SCHEMA_V4),
 ];
 
 export function migrate(db: SqlDb): void {

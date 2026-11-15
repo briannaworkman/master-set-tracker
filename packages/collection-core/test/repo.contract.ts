@@ -251,6 +251,21 @@ export function runRepoContract(name: string, make: () => CollectionRepo): void 
         expect(repo.getSyncState()).toEqual({ cursor: 50, lastSyncedAt: null });
       });
 
+      it('stores the local owner apart from the sync state, and wipe clears it', () => {
+        expect(repo.getLocalOwner()).toBeNull();
+        repo.setLocalOwner('user-a');
+        expect(repo.getLocalOwner()).toBe('user-a');
+        expect(repo.getSyncState()).toEqual({ cursor: 0, lastSyncedAt: null });
+        repo.setSyncState({ cursor: 7, lastSyncedAt: stamp(1) });
+        expect(repo.getLocalOwner()).toBe('user-a');
+        repo.setLocalOwner('user-b');
+        expect(repo.getLocalOwner()).toBe('user-b');
+        expect(repo.getSyncState()).toEqual({ cursor: 7, lastSyncedAt: stamp(1) });
+        repo.wipe();
+        expect(repo.getLocalOwner()).toBeNull();
+        expect(repo.getSyncState()).toEqual({ cursor: 0, lastSyncedAt: null });
+      });
+
       it('wipe clears everything including sync state', () => {
         repo.trackSet('a', stamp(1));
         repo.setCount('a', 'c-1', 'normal', 2, stamp(2));

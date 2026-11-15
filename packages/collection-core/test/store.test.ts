@@ -173,7 +173,7 @@ describe('migrate', () => {
     const db = createBetterSqliteDb();
     migrate(db);
     expect(() => migrate(db)).not.toThrow();
-    expect(db.first<{ user_version: number }>('PRAGMA user_version')!.user_version).toBe(3);
+    expect(db.first<{ user_version: number }>('PRAGMA user_version')!.user_version).toBe(4);
   });
 });
 

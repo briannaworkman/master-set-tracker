@@ -56,7 +56,7 @@ describe('migrate v1 -> v2', () => {
   it('adds removed_at/updated_at to tracked_sets and keeps existing rows', () => {
     const db = v1Db();
     migrate(db);
-    expect(userVersion(db)).toBe(3);
+    expect(userVersion(db)).toBe(4);
     expect(db.all('SELECT set_id, hidden_category_ids, added_at, updated_at, removed_at FROM tracked_sets ORDER BY set_id')).toEqual([
       { set_id: 'a', hidden_category_ids: '["promos"]', added_at: 't0', updated_at: 't0', removed_at: null },
       { set_id: 'b', hidden_category_ids: '[]', added_at: 't1', updated_at: 't1', removed_at: null },
@@ -74,13 +74,35 @@ describe('migrate v1 -> v2', () => {
     expect(cols).toEqual(['set_id', 'hidden_category_ids', 'added_at']);
   });
 
-  it('migrates a fresh database straight to v3 and is idempotent', () => {
+  it('migrates a fresh database straight to the latest version and is idempotent', () => {
     const db = createBetterSqliteDb();
     migrate(db);
     migrate(db);
-    expect(userVersion(db)).toBe(3);
+    expect(userVersion(db)).toBe(4);
     const cols = db.all<{ name: string }>('PRAGMA table_info(tracked_sets)').map((c) => c.name);
     expect(cols).toEqual(['set_id', 'hidden_category_ids', 'added_at', 'removed_at', 'updated_at', 'dirty']);
+  });
+});
+
+describe('migrate v3 -> v4', () => {
+  it('adds an empty owner to sync_state and keeps the cursor', () => {
+    const db = createBetterSqliteDb();
+    migrate(db);
+    expect(db.all<{ name: string }>('PRAGMA table_info(sync_state)').map((c) => c.name)).toEqual(['id', 'cursor', 'last_synced_at', 'owner']);
+  });
+
+  it('keeps an existing v3 sync_state row, with a null owner', () => {
+    const db = v1Db();
+    db.exec("ALTER TABLE tracked_sets ADD COLUMN removed_at TEXT; ALTER TABLE tracked_sets ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''; PRAGMA user_version = 2;");
+    db.exec(`ALTER TABLE collection ADD COLUMN dirty INTEGER NOT NULL DEFAULT 1;
+      ALTER TABLE tracked_sets ADD COLUMN dirty INTEGER NOT NULL DEFAULT 1;
+      CREATE TABLE sync_state (id INTEGER PRIMARY KEY CHECK (id = 1), cursor INTEGER NOT NULL, last_synced_at TEXT);
+      CREATE TABLE prices (set_id TEXT PRIMARY KEY, fetched_at TEXT NOT NULL, json TEXT NOT NULL);
+      INSERT INTO sync_state (id, cursor, last_synced_at) VALUES (1, 12, 't9');
+      PRAGMA user_version = 3;`);
+    migrate(db);
+    expect(userVersion(db)).toBe(4);
+    expect(db.all('SELECT cursor, last_synced_at, owner FROM sync_state')).toEqual([{ cursor: 12, last_synced_at: 't9', owner: null }]);
   });
 });
 
@@ -91,7 +113,7 @@ describe('migrate v2 -> v3', () => {
     // bring to v2 only, by running the v2 statements manually
     db.exec("ALTER TABLE tracked_sets ADD COLUMN removed_at TEXT; ALTER TABLE tracked_sets ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''; UPDATE tracked_sets SET updated_at = added_at; PRAGMA user_version = 2;");
     migrate(db);
-    expect(userVersion(db)).toBe(3);
+    expect(userVersion(db)).toBe(4);
     expect(db.all('SELECT set_id, dirty FROM tracked_sets ORDER BY set_id')).toEqual([
       { set_id: 'a', dirty: 1 },
       { set_id: 'b', dirty: 1 },

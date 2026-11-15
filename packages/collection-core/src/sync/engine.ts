@@ -126,10 +126,18 @@ export class SyncEngine {
       return this.inFlight;
     }
     this.rerunRequested = false;
-    this.inFlight = this.drive().finally(() => {
+    // Publish inFlight before drive() emits its first 'syncing' status (synchronously, below), so
+    // a listener calling syncNow() joins this run and one calling stop() waits for it to unwind.
+    let finish!: (s: SyncStatus) => void;
+    const run = new Promise<SyncStatus>((resolve) => {
+      finish = resolve;
+    }).finally(() => {
       this.inFlight = null;
     });
-    return this.inFlight;
+    this.inFlight = run;
+    // drive() never rejects; the fallback only guards against that changing.
+    this.drive().then(finish, () => finish(this.status));
+    return run;
   }
 
   subscribe(listener: (s: SyncStatus) => void): () => void {

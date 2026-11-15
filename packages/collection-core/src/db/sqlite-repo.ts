@@ -154,6 +154,16 @@ export function createSqliteRepo(db: SqlDb): CollectionRepo {
         [s.cursor, s.lastSyncedAt],
       );
     },
+    getLocalOwner() {
+      return db.first<{ owner: string | null }>('SELECT owner FROM sync_state WHERE id = 1')?.owner ?? null;
+    },
+    setLocalOwner(userId) {
+      db.run(
+        `INSERT INTO sync_state (id, cursor, last_synced_at, owner) VALUES (1, 0, NULL, ?)
+         ON CONFLICT (id) DO UPDATE SET owner = excluded.owner`,
+        [userId],
+      );
+    },
     dirtyCount() {
       const c = db.first<{ n: number }>('SELECT (SELECT count(*) FROM collection WHERE dirty = 1) + (SELECT count(*) FROM tracked_sets WHERE dirty = 1) AS n');
       return c?.n ?? 0;

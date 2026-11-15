@@ -55,7 +55,11 @@ export interface CollectionRepo {
   applyRemote(changes: LocalChanges): { affectedSetIds: string[] };
   getSyncState(): SyncState;
   setSyncState(s: SyncState): void;
+  /** The user id the local data belongs to (set when a signed-in session starts), or null. */
+  getLocalOwner(): string | null;
+  /** Records the local data's owner; leaves the sync state as it is. */
+  setLocalOwner(userId: string): void;
   dirtyCount(): number;
-  /** Deletes collection, tracked sets, sync state and cached prices in one transaction. */
+  /** Deletes collection, tracked sets, sync state (with the local owner) and cached prices in one transaction. */
   wipe(): void;
 }

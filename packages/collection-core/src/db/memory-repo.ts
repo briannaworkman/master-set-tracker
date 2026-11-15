@@ -33,6 +33,7 @@ export function createMemoryRepo(): CollectionRepo {
   // Keyed globally by (cardId, kind) like the SQLite primary key; a write updates the row's setId.
   const counts = new Map<VersionKey, CountEntry>();
   let sync: SyncState = { cursor: 0, lastSyncedAt: null };
+  let owner: string | null = null;
   return {
     listTracked() {
       return [...tracked.values()]
@@ -122,6 +123,10 @@ export function createMemoryRepo(): CollectionRepo {
     setSyncState(s) {
       sync = { ...s };
     },
+    getLocalOwner: () => owner,
+    setLocalOwner(userId) {
+      owner = userId;
+    },
     dirtyCount() {
       return [...counts.values()].filter((r) => r.dirty).length + [...tracked.values()].filter((r) => r.dirty).length;
     },
@@ -129,6 +134,7 @@ export function createMemoryRepo(): CollectionRepo {
       tracked.clear();
       counts.clear();
       sync = { cursor: 0, lastSyncedAt: null };
+      owner = null;
     },
   };
 }
