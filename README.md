@@ -7,7 +7,7 @@ have, and see at a glance what's missing and what you have spare.
 The design is in
 [`docs/superpowers/specs/2026-11-14-master-set-tracker-design.md`](docs/superpowers/specs/2026-11-14-master-set-tracker-design.md).
 
-![The 151 set screen on iPhone](docs/screenshots/plan-2/ios-05-normal-dot-badge-2.png)
+![The 151 set screen on iPhone](docs/screenshots/plan-2/ios-25-hero-set-screen-light.png)
 
 More screenshots: [`docs/screenshots/plan-2/`](docs/screenshots/plan-2/).
 
