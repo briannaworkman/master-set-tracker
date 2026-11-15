@@ -18,7 +18,12 @@ function fakeSource() {
   mk('sv03.5-003', 'Venusaur ex', null);
   let failing: string | null = null;
   let totalCards = 3;
-  const source: CardSource & { addCard(id: string): void; failOn(id: string): void; setTotal(n: number): void } = {
+  const source: CardSource & {
+    addCard(id: string): void;
+    removeCard(id: string): void;
+    failOn(id: string): void;
+    setTotal(n: number): void;
+  } = {
     async getSet(id): Promise<SourceSet> {
       if (id !== 'sv03.5') throw new Error(`source failure for set ${id}`);
       return {
@@ -35,6 +40,10 @@ function fakeSource() {
     addCard(id) {
       mk(id, 'New card', 'Common');
       totalCards++;
+    },
+    removeCard(id) {
+      cards.delete(id);
+      totalCards--;
     },
     failOn(id) { failing = id; },
     setTotal(n) { totalCards = n; },
@@ -107,6 +116,21 @@ describe('runCli', () => {
     const others = dist.cards.filter((c: { id: string }) => c.id !== 'sv03.5-004');
     const prevMax = Math.max(...others.flatMap((c: { versions: { position: number }[] }) => c.versions.map((v) => v.position)));
     expect(newCard.versions.map((v: { position: number }) => v.position)).toEqual([1, 2, 3, 4].map((n) => prevMax + n));
+  });
+
+  it('sets versionCount to the highest position ever used + 1, not the live version count', async () => {
+    await runCli(['publish', 'sv03.5'], deps);
+    source.removeCard('sv03.5-003'); // holds the highest position
+    logs = [];
+    expect(await runCli(['build', 'sv03.5', '--accept-changes'], deps)).toBe(0);
+    const dist = json('catalog/dist/sets/sv03.5.json');
+    const live = dist.cards.flatMap((c: { versions: { position: number }[] }) => c.versions.map((v) => v.position));
+    const maxPosition = Math.max(...live, ...dist.retiredPositions);
+    expect(dist.versionCount).toBe(maxPosition + 1);
+    expect(dist.versionCount).toBeGreaterThan(live.length);
+    expect(json('catalog/dist/index.json').sets[0].versionCount).toBe(maxPosition + 1);
+    // The human summary still reports collectible versions.
+    expect(logs.join('\n')).toMatch(new RegExp(`151: 2 cards, ${live.length} versions`));
   });
 
   it('writes nothing when a later set in a multi-set build fails', async () => {

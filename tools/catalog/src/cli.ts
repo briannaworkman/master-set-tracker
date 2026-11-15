@@ -117,6 +117,7 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<number> {
         const perCategory = result.catalog.categories
           .map((c) => `${c.label} ${result.catalog.cards.filter((card) => card.categoryId === c.id).length}`)
           .join(', ');
+        const liveVersions = result.catalog.cards.reduce((n, c) => n + c.versions.length, 0);
         planned.push({
           id,
           catalog: result.catalog,
@@ -124,7 +125,7 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<number> {
           lock: command === 'publish' || (lock && result.changed) ? result.lock : null,
           summary:
             `${result.catalog.name}: ${result.catalog.cards.length} cards, ` +
-            `${result.catalog.versionCount} versions (${perCategory})`,
+            `${liveVersions} versions (${perCategory})`,
         });
       } catch (err) {
         log(`${id}: ${err instanceof Error ? err.message : String(err)}`);

@@ -48,7 +48,8 @@ export async function buildSet(opts: {
     releaseDate: rules.releaseDate,
     logoUrl: sourceSet.logoUrl,
     catalogVersion: result.lock.catalogVersion,
-    versionCount: result.cards.reduce((n, c) => n + c.versions.length, 0),
+    // Bitset length for offline QR codes: highest position ever used + 1, including retired ones.
+    versionCount: Math.max(-1, ...Object.values(result.lock.positions), ...result.lock.retired) + 1,
     retiredPositions: result.lock.retired,
     categories: rules.categories.map((c, i) => ({ id: c.id, kind: c.kind, label: c.label, sortOrder: i })),
     cards: result.cards,
