@@ -6,6 +6,28 @@ import { useTheme } from '../theme/useTheme';
 
 const RAINBOW = ['#A5B4FC', '#F9A8D4', '#86EFAC', '#FDE68A'] as const;
 
+/** The dot (and duplicate badge) without any press handling, for read-only displays. */
+export function DotMark({ kind, count }: { kind: VersionKind; count: number }) {
+  const theme = useTheme();
+  const owned = count >= 1;
+  return (
+    <View style={styles.hit}>
+      {!owned ? (
+        <View testID="dot-missing" style={[styles.dot, styles.missing, { borderColor: theme.missing }]} />
+      ) : kind.color === 'rainbow' ? (
+        <LinearGradient testID="dot-rainbow" colors={RAINBOW} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.dot} />
+      ) : (
+        <View testID="dot-fill" style={[styles.dot, { backgroundColor: kind.color }]} />
+      )}
+      {count >= 2 ? (
+        <View testID="dot-badge" style={[styles.badge, { backgroundColor: theme.text, borderColor: theme.surface }]}>
+          <Text style={[styles.badgeText, { color: theme.bg }]}>{count}</Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 export function VersionDot({
   kind,
   count,
@@ -19,8 +41,6 @@ export function VersionDot({
   onLongPress(): void;
   accessibilityLabel: string;
 }) {
-  const theme = useTheme();
-  const owned = count >= 1;
   return (
     <Pressable
       accessibilityRole="button"
@@ -34,18 +54,7 @@ export function VersionDot({
       onLongPress={onLongPress}
       style={styles.hit}
     >
-      {!owned ? (
-        <View testID="dot-missing" style={[styles.dot, styles.missing, { borderColor: theme.missing }]} />
-      ) : kind.color === 'rainbow' ? (
-        <LinearGradient testID="dot-rainbow" colors={RAINBOW} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.dot} />
-      ) : (
-        <View testID="dot-fill" style={[styles.dot, { backgroundColor: kind.color }]} />
-      )}
-      {count >= 2 ? (
-        <View testID="dot-badge" style={[styles.badge, { backgroundColor: theme.text, borderColor: theme.surface }]}>
-          <Text style={[styles.badgeText, { color: theme.bg }]}>{count}</Text>
-        </View>
-      ) : null}
+      <DotMark kind={kind} count={count} />
     </Pressable>
   );
 }

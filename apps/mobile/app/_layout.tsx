@@ -32,6 +32,7 @@ export default function RootLayout() {
               >
                 <Stack.Screen name="index" options={{ headerShown: false }} />
                 <Stack.Screen name="browse" options={{ title: 'Add a set' }} />
+                <Stack.Screen name="set/[id]/card/[cardId]" options={{ presentation: 'modal' }} />
               </Stack>
             </PersistenceContext.Provider>
           </PriceProvider>
