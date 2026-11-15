@@ -91,3 +91,9 @@ describe('createCatalog', () => {
     expect(c.getSet('sv03.5')?.cards.length).toBeGreaterThan(0);
   });
 });
+
+describe('bundled catalog kinds', () => {
+  it('match the fixture kinds the tests use', () => {
+    expect(bundledCatalog.index.kinds).toEqual(fixtureKinds);
+  });
+});

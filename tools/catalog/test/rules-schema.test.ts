@@ -24,6 +24,10 @@ describe('rules schema', () => {
     expect(kinds.map((k) => k.sortOrder)).toEqual([0, 1, 2, 3, 4, 5]);
   });
 
+  it('uses the darker Normal colour so an owned Normal dot stands out from the light missing ring (R10)', () => {
+    expect(kinds.find((k) => k.id === 'normal')!.color).toBe('#6F685E');
+  });
+
   it('parses a valid rules file', () => {
     const r = parseSetRules(fixture, kinds);
     expect(r.id).toBe('sv03.5');

@@ -1,7 +1,7 @@
 import type { CatalogCard, SetCatalog, VersionKind } from '@mst/catalog-core';
 
 export const fixtureKinds: VersionKind[] = [
-  { id: 'normal', label: 'Normal', shortLabel: 'N', color: '#A39D92', sortOrder: 0 },
+  { id: 'normal', label: 'Normal', shortLabel: 'N', color: '#6F685E', sortOrder: 0 },
   { id: 'holo', label: 'Holo', shortLabel: 'H', color: '#6E8FD8', sortOrder: 1 },
   { id: 'reverse', label: 'Reverse Holo', shortLabel: 'R', color: 'rainbow', sortOrder: 2 },
   { id: 'pokeball', label: 'Poké Ball Reverse', shortLabel: 'PB', color: '#E5484D', sortOrder: 3 },

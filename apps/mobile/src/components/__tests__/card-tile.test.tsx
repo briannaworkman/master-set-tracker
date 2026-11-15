@@ -160,7 +160,7 @@ describe('VersionDot visuals', () => {
   });
   it('owned once: kind colour fill, no badge', async () => {
     await dot(kindsById.normal!, 1);
-    expect(StyleSheet.flatten(screen.getByTestId('dot-fill').props.style).backgroundColor).toBe('#A39D92');
+    expect(StyleSheet.flatten(screen.getByTestId('dot-fill').props.style).backgroundColor).toBe('#6F685E');
     expect(screen.queryByTestId('dot-badge')).toBeNull();
   });
   it('rainbow kind renders the gradient', async () => {

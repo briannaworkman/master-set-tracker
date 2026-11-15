@@ -1,7 +1,7 @@
 - id: normal
   label: Normal
   shortLabel: N
-  color: "#A39D92"
+  color: "#6F685E"
   sortOrder: 0
 - id: holo
   label: Holo

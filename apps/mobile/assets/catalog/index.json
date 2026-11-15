@@ -1,11 +1,11 @@
 {
-  "generatedAt": "2026-11-15T01:25:44.048Z",
+  "generatedAt": "2026-11-15T02:48:06.221Z",
   "kinds": [
     {
       "id": "normal",
       "label": "Normal",
       "shortLabel": "N",
-      "color": "#A39D92",
+      "color": "#6F685E",
       "sortOrder": 0
     },
     {
