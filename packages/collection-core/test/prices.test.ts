@@ -31,6 +31,15 @@ describe.each([
     expect(cache.get('b')).toBeNull();
   });
 
+  it('clear() empties every set (sign-out)', () => {
+    const cache = make();
+    cache.put('a', 't1', { 'c-1|normal': 1.5 });
+    cache.put('b', 't1', { 'c-2|normal': 3 });
+    cache.clear();
+    expect(cache.get('a')).toBeNull();
+    expect(cache.get('b')).toBeNull();
+  });
+
   it('prices a version from the cache and returns null when unknown', () => {
     const cache = make();
     cache.put('a', 't', {

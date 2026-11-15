@@ -12,6 +12,8 @@ export interface CachedPrices {
 export interface PriceCache {
   get(setId: string): CachedPrices | null;
   put(setId: string, fetchedAt: string, prices: Record<string, number>): void;
+  /** Removes every set's prices (sign-out). The SQLite repo's wipe() also clears its table. */
+  clear(): void;
 }
 
 export function createSqlitePriceCache(db: SqlDb): PriceCache {
@@ -30,6 +32,9 @@ export function createSqlitePriceCache(db: SqlDb): PriceCache {
     put(setId, fetchedAt, prices) {
       db.run('INSERT OR REPLACE INTO prices (set_id, fetched_at, json) VALUES (?, ?, ?)', [setId, fetchedAt, JSON.stringify(prices)]);
     },
+    clear() {
+      db.run('DELETE FROM prices');
+    },
   };
 }
 
@@ -42,6 +47,9 @@ export function createMemoryPriceCache(): PriceCache {
     },
     put(setId, fetchedAt, prices) {
       sets.set(setId, { fetchedAt, prices: { ...prices } });
+    },
+    clear() {
+      sets.clear();
     },
   };
 }
