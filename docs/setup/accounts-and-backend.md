@@ -8,17 +8,17 @@ Secrets rule: **never paste a secret into chat.** Anything marked *secret* goes 
 
 ## 1. Supabase project (free)
 
-1. Sign up at [supabase.com](https://supabase.com) and create a new project. Pick a region near you and save the database password in your password manager.
-2. In the project, open **Project Settings → API** and copy:
-   - **Project URL** (*public*), e.g. `https://abcd1234.supabase.co`
-   - **anon / publishable key** (*public*: it ships inside the app)
-   - leave the **service_role / secret key** where it is (*secret*). The backend reads it automatically; nobody needs to copy it.
-3. Note the **project ref**: the `abcd1234` part of the URL.
+1. Sign up at [supabase.com](https://supabase.com) and create a new project. Pick a region near you and save the database password in your password manager (*secret*: you type it into the terminal in step 7; never paste it into chat).
+2. Note the **project ref** (*public*): **Project Settings → General → Project ID**, e.g. `abcd1234`. The **Project URL** (*public*) is `https://<project ref>.supabase.co`, e.g. `https://abcd1234.supabase.co` (the dashboard's **Connect** button shows it too).
+3. Open **Project Settings → API Keys** and copy the **publishable key** (or, on the *Legacy API keys* tab, the **anon** key) (*public*: it ships inside the app).
+   Leave the **secret / service_role key** where it is (*secret*). The backend reads it automatically; nobody needs to copy it.
 4. In a terminal in the project folder, sign the Supabase command-line tool in to your account (it opens your browser):
 
    ```bash
    npx supabase login
    ```
+
+Free projects pause after about a week without activity. If the app stops syncing after a break (it keeps working offline), open the project in the dashboard and click **Restore project**; it's back within a few minutes and the app syncs again on its own.
 
 Send Claude: the Project URL, the anon key, and the project ref.
 
@@ -47,7 +47,28 @@ Send Claude: the iOS client ID and the Web client ID (not the secret).
 
 ## 4. Email sign-in codes
 
-In Supabase: **Authentication → Emails → Templates → Magic Link**, make sure the email body includes the code `{{ .Token }}` (e.g. "Your Master Set Tracker code is {{ .Token }}"). The app signs in with that 6-digit code, so no links have to open the app.
+The app signs in with a 6-digit code typed into the app, so no email link ever has to open it. Supabase sends a **new** user the *Confirm signup* email and a **returning** user the *Magic Link* email, so both need the code.
+
+1. **Authentication → Emails → Templates → Confirm signup**: set it to, for example:
+   - Subject: `Your Master Set Tracker code`
+   - Body:
+
+     ```html
+     <h2>Welcome to Master Set Tracker</h2>
+     <p>Your sign-in code is <strong>{{ .Token }}</strong></p>
+     <p>Type it into the app. It expires in an hour. If you didn't ask for it, you can ignore this email.</p>
+     ```
+2. **Authentication → Emails → Templates → Magic Link**: the same, for example:
+   - Subject: `Your Master Set Tracker code`
+   - Body:
+
+     ```html
+     <h2>Sign in to Master Set Tracker</h2>
+     <p>Your sign-in code is <strong>{{ .Token }}</strong></p>
+     <p>Type it into the app. It expires in an hour. If you didn't ask for it, you can ignore this email.</p>
+     ```
+   Save each template. `{{ .Token }}` must appear exactly like that (with the spaces and the dot).
+3. **Authentication → Sign In / Providers → Email**: check that **Email OTP Length** is `6` (the app's code field takes 6 digits), and leave **Confirm email** on.
 
 The free plan's built-in email sender is rate-limited (a few emails an hour). That's fine for development; add your own SMTP provider before launch.
 
@@ -61,6 +82,67 @@ brew install cocoapods
 
 (If you don't have Homebrew, see [brew.sh](https://brew.sh).)
 
+CocoaPods needs a UTF-8 terminal. If `pod install` (or the iOS build) fails with *Unicode Normalization not appropriate for ASCII-8BIT*, add this line to `~/.zshrc`, then open a new terminal window:
+
+```bash
+export LANG=en_US.UTF-8
+```
+
 ## 6. The app's settings file
 
-Claude will create `apps/mobile/.env.example`. Copy it to `apps/mobile/.env` and fill in the values from steps 1–3. That file is git-ignored and never committed.
+Copy `apps/mobile/.env.example` to `apps/mobile/.env` and fill in the values from steps 1–3. That file is git-ignored and never committed.
+
+Expo reads `.env` only when its bundler (Metro) starts. After editing `.env`, stop Metro (Ctrl+C) and start it again with a cleared cache, or the app keeps the old values:
+
+```bash
+cd apps/mobile && npx expo start --clear
+```
+
+## 7. Backend: link, the price-refresh secret, deploy
+
+The daily price refresh is called by a scheduled database job with a random secret of its own (not the service-role key). You create it so that it lives only in Supabase; Claude never sees it. Run these in a terminal in the project folder, in this order.
+
+1. Link the folder to your project. When it asks for the **database password**, type it (from step 1):
+
+   ```bash
+   npx supabase link --project-ref <project ref>
+   ```
+2. Generate the secret and give it to the price function. The value is never printed; the last command puts the SQL for the next step on your clipboard:
+
+   ```bash
+   SECRET=$(openssl rand -hex 32)
+   npx supabase secrets set REFRESH_PRICES_SECRET="$SECRET"
+   printf "select vault.create_secret('%s', 'refresh_prices_secret');\n" "$SECRET" | pbcopy
+   unset SECRET
+   ```
+3. In the dashboard, open **SQL Editor → New query**, paste (Cmd+V) and **Run**. Then run this too (with your project ref):
+
+   ```sql
+   select vault.create_secret('https://<project ref>.supabase.co/functions/v1/refresh-prices', 'refresh_prices_url');
+   ```
+   Then clear the editor, and if the SQL Editor saved the first query as a snippet, delete it (it contains the secret). Copy something else so the secret leaves your clipboard.
+4. Create the database tables and the daily schedule. Type the database password again if asked:
+
+   ```bash
+   npx supabase db push
+   ```
+   Check the schedule exists: in **SQL Editor**, run `select jobname, schedule from cron.job;`. It should list `refresh-prices-daily` with `0 9 * * *`. If it's empty, the Vault secrets from step 3 were missing when the tables were created: create them, then run the one-off `cron.schedule(...)` SQL from the header of `supabase/migrations/20261116000002_prices.sql`.
+5. Deploy the two backend functions:
+
+   ```bash
+   npx supabase functions deploy refresh-prices
+   npx supabase functions deploy delete-account
+   ```
+
+6. Fill the prices once now instead of waiting for 09:00 UTC. In **SQL Editor**, run (the secret is read inside the database and never shown):
+
+   ```sql
+   select net.http_post(
+     url := (select decrypted_secret from vault.decrypted_secrets where name = 'refresh_prices_url'),
+     headers := jsonb_build_object('Content-Type', 'application/json',
+       'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'refresh_prices_secret')),
+     body := '{}'::jsonb, timeout_milliseconds := 120000);
+   ```
+   After a minute or two, `select set_id, count(*) from card_prices group by set_id;` should show rows for both sets. If not, `select status_code, content from net._http_response order by created desc limit 1;` shows what the function answered (401: the two secrets differ; 500 `misconfigured`: `REFRESH_PRICES_SECRET` isn't set).
+
+Tell Claude when this is done.
