@@ -45,5 +45,12 @@ export function runRepoContract(name: string, make: () => CollectionRepo): void 
       repo.setCount('a', 'c-001', 'normal', 0, 't2');
       expect(repo.countsForSet('a')).toEqual({});
     });
+
+    it('keys counts globally by (cardId, kind); the latest write owns the row', () => {
+      repo.setCount('a', 'c-001', 'normal', 2, 't1');
+      repo.setCount('b', 'c-001', 'normal', 4, 't2');
+      expect(repo.countsForSet('a')).toEqual({});
+      expect(repo.countsForSet('b')['c-001:normal']).toBe(4);
+    });
   });
 }

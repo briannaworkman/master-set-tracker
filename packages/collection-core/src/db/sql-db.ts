@@ -13,6 +13,7 @@ export interface TrackedSet {
   addedAt: string;
 }
 
+/** Card ids are globally unique (they start with the set id), so counts are keyed by (cardId, kind). */
 export interface CollectionRepo {
   /** Ordered by addedAt ascending. */
   listTracked(): TrackedSet[];

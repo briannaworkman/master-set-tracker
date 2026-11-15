@@ -75,6 +75,37 @@ describe('CollectionStore', () => {
   });
 });
 
+describe('CollectionStore robustness', () => {
+  it('a throwing listener does not block others or lose the write', () => {
+    const repo = createMemoryRepo();
+    const store = new CollectionStore(repo);
+    const second = vi.fn();
+    store.subscribe(() => {
+      throw new Error('boom');
+    });
+    store.subscribe(second);
+    expect(() => store.tap('a', 'c-001', 'normal')).toThrow('boom');
+    expect(second).toHaveBeenCalledTimes(1);
+    expect(store.getCounts('a')['c-001:normal']).toBe(1);
+    expect(repo.countsForSet('a')['c-001:normal']).toBe(1);
+  });
+
+  it('does not replace the tracked reference or emit when nothing changed', () => {
+    const store = new CollectionStore(createMemoryRepo());
+    store.track('a');
+    store.setHidden('a', ['x']);
+    const ref = store.getTracked();
+    const listener = vi.fn();
+    store.subscribe(listener);
+    store.track('a');
+    store.untrack('zzz');
+    store.setHidden('zzz', ['x']);
+    store.setHidden('a', ['x']);
+    expect(store.getTracked()).toBe(ref);
+    expect(listener).not.toHaveBeenCalled();
+  });
+});
+
 describe('migrate', () => {
   it('is idempotent', () => {
     const db = createBetterSqliteDb();

@@ -3,7 +3,8 @@ import type { CollectionRepo, TrackedSet } from './sql-db';
 
 export function createMemoryRepo(): CollectionRepo {
   const tracked = new Map<string, TrackedSet>();
-  const counts = new Map<string, Map<VersionKey, number>>();
+  // Keyed globally by (cardId, kind) like the SQLite primary key; a write updates the row's setId.
+  const counts = new Map<VersionKey, { setId: string; count: number }>();
   return {
     listTracked() {
       return [...tracked.values()]
@@ -22,13 +23,11 @@ export function createMemoryRepo(): CollectionRepo {
     },
     countsForSet(setId) {
       const out: Record<VersionKey, number> = {};
-      for (const [k, n] of counts.get(setId) ?? []) if (n > 0) out[k] = n;
+      for (const [k, row] of counts) if (row.setId === setId && row.count > 0) out[k] = row.count;
       return out;
     },
     setCount(setId, cardId, kind, count) {
-      let m = counts.get(setId);
-      if (!m) counts.set(setId, (m = new Map()));
-      m.set(versionKey(cardId, kind), clampCount(count));
+      counts.set(versionKey(cardId, kind), { setId, count: clampCount(count) });
     },
   };
 }

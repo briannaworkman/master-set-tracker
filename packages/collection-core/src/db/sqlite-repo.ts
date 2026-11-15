@@ -2,6 +2,15 @@ import { clampCount, versionKey, type VersionKey } from '../keys';
 import { migrate } from './migrations';
 import type { CollectionRepo, SqlDb, TrackedSet } from './sql-db';
 
+function parseIds(raw: string): string[] {
+  try {
+    const v: unknown = JSON.parse(raw);
+    return Array.isArray(v) && v.every((x) => typeof x === 'string') ? v : [];
+  } catch {
+    return [];
+  }
+}
+
 export function createSqliteRepo(db: SqlDb): CollectionRepo {
   migrate(db);
   return {
@@ -12,7 +21,7 @@ export function createSqliteRepo(db: SqlDb): CollectionRepo {
         )
         .map((r): TrackedSet => ({
           setId: r.set_id,
-          hiddenCategoryIds: JSON.parse(r.hidden_category_ids) as string[],
+          hiddenCategoryIds: parseIds(r.hidden_category_ids),
           addedAt: r.added_at,
         }));
     },

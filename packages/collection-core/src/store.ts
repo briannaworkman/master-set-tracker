@@ -58,11 +58,26 @@ export class CollectionStore {
   }
 
   private refreshTracked(): void {
-    this.tracked = this.repo.listTracked();
+    const next = this.repo.listTracked();
+    if (JSON.stringify(next) === JSON.stringify(this.tracked)) return;
+    this.tracked = next;
     this.emit();
   }
 
+  /** Calls every listener; rethrows the first error afterwards so none is swallowed. */
   private emit(): void {
-    for (const l of [...this.listeners]) l();
+    let failed = false;
+    let first: unknown;
+    for (const l of [...this.listeners]) {
+      try {
+        l();
+      } catch (e) {
+        if (!failed) {
+          failed = true;
+          first = e;
+        }
+      }
+    }
+    if (failed) throw first;
   }
 }
