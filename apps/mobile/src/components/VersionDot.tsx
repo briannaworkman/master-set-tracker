@@ -35,14 +35,14 @@ export function VersionDot({
       style={styles.hit}
     >
       {!owned ? (
-        <View style={[styles.dot, styles.missing, { borderColor: theme.missing }]} />
+        <View testID="dot-missing" style={[styles.dot, styles.missing, { borderColor: theme.missing }]} />
       ) : kind.color === 'rainbow' ? (
-        <LinearGradient colors={RAINBOW} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.dot} />
+        <LinearGradient testID="dot-rainbow" colors={RAINBOW} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.dot} />
       ) : (
-        <View style={[styles.dot, { backgroundColor: kind.color }]} />
+        <View testID="dot-fill" style={[styles.dot, { backgroundColor: kind.color }]} />
       )}
       {count >= 2 ? (
-        <View style={[styles.badge, { backgroundColor: theme.text, borderColor: theme.surface }]}>
+        <View testID="dot-badge" style={[styles.badge, { backgroundColor: theme.text, borderColor: theme.surface }]}>
           <Text style={[styles.badgeText, { color: theme.bg }]}>{count}</Text>
         </View>
       ) : null}

@@ -24,24 +24,25 @@ export function CardTile({
   onOpenCard(): void;
 }) {
   const theme = useTheme();
-  const [failed, setFailed] = useState(false);
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const status = cardStatus(card, counts);
   const imageHeight = Math.round(width * 0.72);
-  const showImage = card.imageUrl != null && !failed;
+  const showImage = card.imageUrl != null && failedUrl !== card.imageUrl;
   return (
     <View style={[styles.tile, { width, backgroundColor: theme.surface, borderColor: theme.border }]}>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`Open ${card.name} ${card.number}`}
+        accessibilityLabel={`Open ${card.name} ${card.number}${status === 'complete' ? ', complete' : ''}`}
         onPress={onOpenCard}
         style={{ height: imageHeight }}
       >
         {showImage ? (
           <Image
+            testID="tile-image"
             source={{ uri: card.imageUrl! }}
             contentFit="contain"
             style={[styles.fill, status === 'none' && styles.dimmed]}
-            onError={() => setFailed(true)}
+            onError={() => setFailedUrl(card.imageUrl)}
             accessibilityIgnoresInvertColors
           />
         ) : (
@@ -97,6 +98,7 @@ const styles = StyleSheet.create({
     width: 16,
     height: 16,
     borderRadius: 8,
+    // Literal colours: the badge sits on card art, which does not change with the theme.
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
