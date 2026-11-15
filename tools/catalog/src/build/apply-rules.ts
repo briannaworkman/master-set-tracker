@@ -49,15 +49,35 @@ export function applyRules(
     }
   }
 
+  // A typo in a matcher must fail loudly, never silently fall through to a later rule.
+  const knownIds = new Set([...cardIds, ...rules.extraCards.map((e) => e.id)]);
+  const ruleLists = [
+    ['versionRules', rules.versionRules],
+    ['categoryRules', rules.categoryRules],
+  ] as const;
+  for (const [list, ruleList] of ruleLists) {
+    ruleList.forEach((r, i) => {
+      for (const id of r.match.ids ?? []) {
+        if (!knownIds.has(id)) throw new Error(`rule ${i + 1} in ${list} names unknown card "${id}"`);
+      }
+    });
+  }
+
   const mainCategory = rules.categories.find((c) => c.kind === 'main')!.id;
   const byCategory = new Map<string, DraftCard[]>(rules.categories.map((c) => [c.id, []]));
 
+  // How many cards each rule is the first match for (overrides don't count against a rule).
+  const versionHits = rules.versionRules.map(() => 0);
+  const categoryHits = rules.categoryRules.map(() => 0);
+
   for (const card of cards) {
     const override = rules.overrides[card.id];
-    const categoryId =
-      override?.category ?? rules.categoryRules.find((r) => matches(r.match, card))?.category ?? mainCategory;
-    const versions =
-      override?.versions ?? rules.versionRules.find((r) => matches(r.match, card))?.versions;
+    const categoryIndex = rules.categoryRules.findIndex((r) => matches(r.match, card));
+    const versionIndex = rules.versionRules.findIndex((r) => matches(r.match, card));
+    if (categoryIndex >= 0) categoryHits[categoryIndex]!++;
+    if (versionIndex >= 0) versionHits[versionIndex]!++;
+    const categoryId = override?.category ?? rules.categoryRules[categoryIndex]?.category ?? mainCategory;
+    const versions = override?.versions ?? rules.versionRules[versionIndex]?.versions;
     if (!versions) throw new Error(`no version rule matches card "${card.id}"`);
     byCategory.get(categoryId)!.push({
       id: card.id,
@@ -91,6 +111,17 @@ export function applyRules(
       versions: [...extra.versions],
     });
   }
+
+  // A rule that is the first match for no card is dead: usually a rarity typo or a rule
+  // shadowed by an earlier one. The final catch-all version rule may legitimately be unused.
+  versionHits.forEach((n, i) => {
+    if (n === 0 && i < rules.versionRules.length - 1) {
+      throw new Error(`rule ${i + 1} in versionRules matches no cards`);
+    }
+  });
+  categoryHits.forEach((n, i) => {
+    if (n === 0) throw new Error(`rule ${i + 1} in categoryRules matches no cards`);
+  });
 
   return rules.categories.flatMap((c) => [
     ...byCategory.get(c.id)!.sort((a, b) => compareNumbers(a.number, b.number)),

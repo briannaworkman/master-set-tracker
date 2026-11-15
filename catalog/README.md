@@ -33,8 +33,8 @@ The version columns only appear if at least one card in the set uses them:
 | Column | What it is |
 | --- | --- |
 | Normal | The regular non-foil card. |
-| Reverse Holo | The card with the foil on the background instead of the picture. |
 | Holo | The regular card for rarities whose standard print is holofoil (e.g. Rare). |
+| Reverse Holo | The card with the foil on the background instead of the picture. |
 | Poké Ball Reverse | Reverse holo with the Poké Ball pattern. |
 | Master Ball Reverse | Reverse holo with the Master Ball pattern. |
 | Single | Cards that come in exactly one version (ex, illustration rares, ultra rares, gold cards, stamped promos). |
@@ -42,9 +42,9 @@ The version columns only appear if at least one card in the set uses them:
 Example from Prismatic Evolutions:
 
 ```
-Number,Name,Rarity,Category,Normal,Reverse Holo,Holo,Poké Ball Reverse,Master Ball Reverse,Single,Notes
-001,Exeggcute,Common,Main set,✓,✓,,✓,✓,,
-093,Amarys,Common,Main set,✓,✓,,✓,,,
+Number,Name,Rarity,Category,Normal,Holo,Reverse Holo,Poké Ball Reverse,Master Ball Reverse,Single,Notes
+001,Exeggcute,Common,Main set,✓,,✓,✓,✓,,
+093,Amarys,Common,Main set,✓,,✓,✓,,,
 005,Leafeon,Rare,Main set,,✓,✓,✓,✓,,
 060,Umbreon ex,Double rare,Main set,,,,,,✓,
 ```
@@ -105,7 +105,9 @@ except where it says so.
    reports two stamped Lugia ex 082 printings: stamp on the left (Lugia ex
    Special Collection, sold in Europe) and stamp on the right (Lugia ex & Latias
    ex Premium Collection, Target US). TCGdex also lists two, but PriceCharting
-   lists one. Should it be one row or two?
+   lists one. The checklist row is the **stamp-on-the-right** printing from the
+   Lugia ex & Latias ex Premium Collection. Should the European stamp-on-the-left
+   printing get its own row too?
 4. **Cosmos holo versions (not in the checklist).** Some cards were also printed
    with the "cosmos" holo pattern in blister packs, tins and collection boxes.
    Tracking them would need a new "Cosmos Holo" version kind.
@@ -147,9 +149,16 @@ You need Node 22 and pnpm. Run commands from the repository root.
 2. Create `catalog/rules/<id>.yaml`. Copy an existing rules file and change it.
    - `categories`: exactly one `main`, plus any `subset` / `promo_stamped`.
    - `categoryRules`: puts cards into categories; anything unmatched goes to `main`.
-   - `versionRules`: which versions each card has. The first matching rule
-     wins. Match on `rarity` (exact TCGdex rarity strings, case-insensitive),
-     `localIdPrefix` (e.g. `TG`), or `ids`. The last rule must be `match: {}`.
+   - `versionRules`: which versions each card has. Match on `rarity` (exact
+     TCGdex rarity strings, case-insensitive), `localIdPrefix` (e.g. `TG`), or
+     `ids`. The last rule must be `match: {}`.
+   - In both rule lists, **the first matching rule wins**, so put narrow rules
+     (e.g. a list of `ids`) before broad ones (e.g. a `rarity`).
+   - The build **fails** if a rule's `ids` names a card that isn't in the set,
+     or if any category rule or non-final version rule is the first match for
+     no card at all. A failure like that usually means a typo (e.g. a misspelt
+     rarity) or a rule hidden behind an earlier one. The final `match: {}`
+     version rule may match nothing.
    - `overrides`: per-card exceptions, keyed by card id like `sv08.5-093`.
    - `extraCards`: stamped or promo cards that aren't in the TCGdex set list.
    - Put your sources in a comment at the top. Check versions against at least

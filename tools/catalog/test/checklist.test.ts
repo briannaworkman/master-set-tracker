@@ -47,6 +47,15 @@ describe('toChecklistCsv', () => {
     expect(lines(toChecklistCsv(catalog151, kinds))[1]).toBe('001,Bulbasaur,Common,Main set,✓,✓,✓,✓,,'));
   it('leaves rarity blank and marks single', () =>
     expect(lines(toChecklistCsv(catalog151, kinds))[2]).toBe('003,Venusaur ex,,Main set,,,,,✓,'));
+  it('puts the Holo column before Reverse Holo', () => {
+    const rare: SetCatalog = {
+      ...catalog151,
+      cards: [{ ...catalog151.cards[0]!, versions: [v('holo', 0), v('reverse', 1)] }],
+    };
+    const csv = lines(toChecklistCsv(rare, kinds));
+    expect(csv[0]).toBe('﻿Number,Name,Rarity,Category,Holo,Reverse Holo,Notes');
+    expect(csv[1]).toBe('001,Bulbasaur,Common,Main set,✓,✓,');
+  });
   it('quotes names containing commas', () =>
     expect(toChecklistCsv(withName('Mr. Mime, Jr'), kinds)).toContain('"Mr. Mime, Jr"'));
   it('escapes embedded quotes', () =>

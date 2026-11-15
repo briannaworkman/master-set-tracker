@@ -38,8 +38,9 @@ describe('applyRules', () => {
   });
   it('matches rarity case-insensitively', () =>
     expect(applyRules(rules, [card('001', 'COMMON')], {})[0]!.versions).toHaveLength(4));
+  // Inputs below include a Common so every non-final rule matches something (dead rules fail the build).
   it('sends a card with no rarity to the catch-all rule', () =>
-    expect(applyRules(rules, [card('050', null)], {})[0]!.versions).toEqual(['single']));
+    expect(applyRules(rules, [card('001', 'Common'), card('050', null)], {})[1]!.versions).toEqual(['single']));
   it('applies an override', () =>
     expect(
       applyRules(withOverride('sv03.5-001', { versions: ['normal', 'reverse'] }), [card('001', 'Common')], {})[0]!
@@ -58,15 +59,21 @@ describe('applyRules', () => {
       applyRules(withOverride('sv03.5-001', { category: 'promos' }), [card('001', 'Common')], {})[0]!.categoryId,
     ).toBe('promos'));
   it('routes TG-prefixed cards to the trainer gallery category', () =>
-    expect(applyRules(withTrainerGallery, [card('TG01', 'Rare')], {})[0]!.categoryId).toBe('trainer-gallery'));
+    expect(applyRules(withTrainerGallery, [card('001', 'Common'), card('TG01', 'Rare')], {})[1]!.categoryId).toBe(
+      'trainer-gallery',
+    ));
   it('matches localIdPrefix case-sensitively', () =>
-    expect(applyRules(withTrainerGallery, [card('tg01', 'Rare')], {})[0]!.categoryId).toBe('main'));
+    expect(
+      applyRules(withTrainerGallery, [card('001', 'Common'), card('tg01', 'Rare'), card('TG01', 'Rare')], {}).find(
+        (c) => c.number === 'tg01',
+      )!.categoryId,
+    ).toBe('main'));
   it('sorts numbers naturally', () =>
     expect(
       applyRules(rules, [card('10', 'Common'), card('2', 'Common'), card('1', 'Common')], {}).map((c) => c.number),
     ).toEqual(['1', '2', '10']));
   it('orders categories by declaration, numbers before prefixed ids', () => {
-    const out = applyRules(withTrainerGallery, [card('TG02', 'Rare'), card('TG1', 'Rare'), card('5', 'Rare')], {});
+    const out = applyRules(withTrainerGallery, [card('TG02', 'Rare'), card('TG1', 'Rare'), card('5', 'Common')], {});
     expect(out.map((c) => c.number)).toEqual(['5', 'TG1', 'TG02']);
   });
   it('appends extra cards, taking name and image from their source card', () => {
@@ -101,4 +108,66 @@ describe('applyRules', () => {
         {},
       ),
     ).toThrow(/extra card "x".*"zzz"/));
+  describe('matcher validation', () => {
+    const cards = [card('001', 'Common'), card('003', 'Double rare')];
+    const withVersionRules = (versionRules: SetRules['versionRules']): SetRules => ({ ...rules, versionRules });
+
+    it('fails when a version rule names a card not in the set', () =>
+      expect(() =>
+        applyRules(
+          withVersionRules([
+            { match: { ids: ['sv03.5-001', 'sv03.5-0001'] }, versions: ['normal'] },
+            { match: {}, versions: ['single'] },
+          ]),
+          cards,
+          {},
+        ),
+      ).toThrow(/rule 1 in versionRules names unknown card "sv03\.5-0001"/));
+    it('fails when a category rule names a card not in the set', () =>
+      expect(() =>
+        applyRules(
+          { ...withTrainerGallery, categoryRules: [{ match: { ids: ['sv03.5-999'] }, category: 'trainer-gallery' }] },
+          cards,
+          {},
+        ),
+      ).toThrow(/rule 1 in categoryRules names unknown card "sv03\.5-999"/));
+    it('accepts ids of extra cards', () => {
+      const r: SetRules = {
+        ...withExtra({ id: 'sv03.5-x', category: 'promos', number: 'X', name: 'X', versions: ['single'] }),
+        versionRules: [
+          { match: { ids: ['sv03.5-001', 'sv03.5-x'] }, versions: ['normal'] },
+          { match: {}, versions: ['single'] },
+        ],
+      };
+      expect(applyRules(r, cards, {})[0]!.versions).toEqual(['normal']);
+    });
+    it('fails when a non-final version rule matches no cards (rarity typo)', () =>
+      expect(() =>
+        applyRules(
+          withVersionRules([
+            { match: { rarity: ['Common'] }, versions: ['normal'] },
+            { match: { rarity: ['Uncommmon'] }, versions: ['normal', 'reverse'] },
+            { match: {}, versions: ['single'] },
+          ]),
+          cards,
+          {},
+        ),
+      ).toThrow(/rule 2 in versionRules matches no cards/));
+    it('fails when a version rule is shadowed by an earlier one', () =>
+      expect(() =>
+        applyRules(
+          withVersionRules([
+            { match: { rarity: ['Common'] }, versions: ['normal'] },
+            { match: { ids: ['sv03.5-001'] }, versions: ['normal', 'reverse'] },
+            { match: {}, versions: ['single'] },
+          ]),
+          cards,
+          {},
+        ),
+      ).toThrow(/rule 2 in versionRules matches no cards/));
+    it('allows the final catch-all version rule to match nothing', () =>
+      expect(applyRules(rules, [card('001', 'Common')], {})).toHaveLength(1));
+    it('fails when a category rule matches no cards', () =>
+      expect(() => applyRules(withTrainerGallery, cards, {})).toThrow(/rule 1 in categoryRules matches no cards/));
+  });
 });

@@ -20,7 +20,7 @@ const withVersions = (list: string) =>
 
 describe('rules schema', () => {
   it('parses the version kinds file', () => {
-    expect(kinds.map((k) => k.id)).toEqual(['normal', 'reverse', 'holo', 'pokeball', 'masterball', 'single']);
+    expect(kinds.map((k) => k.id)).toEqual(['normal', 'holo', 'reverse', 'pokeball', 'masterball', 'single']);
     expect(kinds.map((k) => k.sortOrder)).toEqual([0, 1, 2, 3, 4, 5]);
   });
 

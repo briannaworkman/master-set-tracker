@@ -3,15 +3,15 @@
   shortLabel: N
   color: "#A39D92"
   sortOrder: 0
-- id: reverse
-  label: Reverse Holo
-  shortLabel: R
-  color: rainbow
-  sortOrder: 1
 - id: holo
   label: Holo
   shortLabel: H
   color: "#6E8FD8"
+  sortOrder: 1
+- id: reverse
+  label: Reverse Holo
+  shortLabel: R
+  color: rainbow
   sortOrder: 2
 - id: pokeball
   label: Poké Ball Reverse

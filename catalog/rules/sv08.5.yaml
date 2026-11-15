@@ -37,10 +37,13 @@
 # 075, 076, 082; for Lucario ex 051 and Tyranitar ex 064, the Lucario ex &
 # Tyranitar ex Premium Collection listing ("specially stamped foil promo cards")
 # on cardcodex.com and retailer listings titled "(Prismatic Evolutions Stamp)".
+# Products: the nine Eevee / Eeveelution stamped ex came one per Prismatic
+# Evolutions Surprise Box (PokeBeach product announcement, retailer listings).
 # Lugia ex 082: Bulbapedia (via search snippets) reports two stamped printings
 # (stamp on the left, Lugia ex Special Collection, Europe; stamp on the right,
 # Lugia ex & Latias ex Premium Collection, Target US). PriceCharting lists only
-# one, so only one is tracked here; see catalog/README.md "Open questions".
+# one. Only the US stamp-on-right printing is tracked here; see catalog/README.md
+# "Open questions".
 # Other stamps (Holiday Calendar snowflake, Pokémon Day, Prize Pack, league),
 # cosmos holos and jumbo cards are NOT included; see the README.
 id: sv08.5
@@ -81,42 +84,49 @@ versionRules:
     versions: [single]
 overrides: {}
 extraCards:
+  # Prismatic Evolutions Surprise Box (each box has one of the nine stamped Eevee / Eeveelution ex).
   - id: sv08.5-006-stamp
     category: promos
     number: "006"
     name: Leafeon ex (Prismatic Evolutions stamp)
     sourceCard: { tcgdex: sv08.5-006 }
     versions: [single]
+  # Prismatic Evolutions Surprise Box (each box has one of the nine stamped Eevee / Eeveelution ex).
   - id: sv08.5-014-stamp
     category: promos
     number: "014"
     name: Flareon ex (Prismatic Evolutions stamp)
     sourceCard: { tcgdex: sv08.5-014 }
     versions: [single]
+  # Prismatic Evolutions Surprise Box (each box has one of the nine stamped Eevee / Eeveelution ex).
   - id: sv08.5-023-stamp
     category: promos
     number: "023"
     name: Vaporeon ex (Prismatic Evolutions stamp)
     sourceCard: { tcgdex: sv08.5-023 }
     versions: [single]
+  # Prismatic Evolutions Surprise Box (each box has one of the nine stamped Eevee / Eeveelution ex).
   - id: sv08.5-026-stamp
     category: promos
     number: "026"
     name: Glaceon ex (Prismatic Evolutions stamp)
     sourceCard: { tcgdex: sv08.5-026 }
     versions: [single]
+  # Prismatic Evolutions Surprise Box (each box has one of the nine stamped Eevee / Eeveelution ex).
   - id: sv08.5-030-stamp
     category: promos
     number: "030"
     name: Jolteon ex (Prismatic Evolutions stamp)
     sourceCard: { tcgdex: sv08.5-030 }
     versions: [single]
+  # Prismatic Evolutions Surprise Box (each box has one of the nine stamped Eevee / Eeveelution ex).
   - id: sv08.5-034-stamp
     category: promos
     number: "034"
     name: Espeon ex (Prismatic Evolutions stamp)
     sourceCard: { tcgdex: sv08.5-034 }
     versions: [single]
+  # Prismatic Evolutions Surprise Box (each box has one of the nine stamped Eevee / Eeveelution ex).
   - id: sv08.5-041-stamp
     category: promos
     number: "041"
@@ -130,6 +140,7 @@ extraCards:
     name: Lucario ex (Prismatic Evolutions stamp)
     sourceCard: { tcgdex: sv08.5-051 }
     versions: [single]
+  # Prismatic Evolutions Surprise Box (each box has one of the nine stamped Eevee / Eeveelution ex).
   - id: sv08.5-060-stamp
     category: promos
     number: "060"
@@ -143,6 +154,7 @@ extraCards:
     name: Tyranitar ex (Prismatic Evolutions stamp)
     sourceCard: { tcgdex: sv08.5-064 }
     versions: [single]
+  # Prismatic Evolutions Surprise Box (each box has one of the nine stamped Eevee / Eeveelution ex).
   - id: sv08.5-075-stamp
     category: promos
     number: "075"
@@ -156,9 +168,12 @@ extraCards:
     name: Snorlax ex (Prismatic Evolutions stamp)
     sourceCard: { tcgdex: sv08.5-076 }
     versions: [single]
-  - id: sv08.5-082-stamp
+  # Lugia ex & Latias ex Premium Collection (Target US, from 2025-10-17): stamp on
+  # the RIGHT side of the card. The other stamped printing (stamp on the left, Lugia ex
+  # Special Collection, Europe only) is NOT tracked yet; see README open questions.
+  - id: sv08.5-082-stamp-right
     category: promos
     number: "082"
-    name: Lugia ex (Prismatic Evolutions stamp)
+    name: Lugia ex (Prismatic Evolutions stamp on right, Lugia ex & Latias ex Premium Collection)
     sourceCard: { tcgdex: sv08.5-082 }
     versions: [single]
