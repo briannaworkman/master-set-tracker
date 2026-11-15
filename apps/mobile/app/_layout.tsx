@@ -8,7 +8,7 @@ import { bundledCatalog } from '../src/catalog/bundled';
 import { CatalogProvider, createCatalog } from '../src/catalog/CatalogContext';
 import { endAuthSession, SIGN_OUT_ERROR } from '../src/account/flows';
 import { AuthProvider } from '../src/auth/AuthProvider';
-import { getSupabase } from '../src/backend/supabase';
+import { getSupabase, readStoredAuthSession } from '../src/backend/supabase';
 import { createSupabaseRemote, fetchSetPrices } from '../src/backend/supabase-remote';
 import { PersistenceContext } from '../src/components/WebPreviewNote';
 import { getAppStore, type OpenedStore } from '../src/db/openStore';
@@ -139,7 +139,7 @@ export default function RootLayout() {
   const { store, repo, priceCache, persistent } = opened.ok;
   return (
     <SafeAreaProvider>
-      <AuthProvider client={getSupabase()}>
+      <AuthProvider client={getSupabase()} readStoredSession={readStoredAuthSession}>
         <CatalogProvider catalog={catalog}>
           <StoreProvider store={store}>
             <SyncSessionProvider repo={repo} remote={remote} priceCache={priceCache}>

@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import type { ReactNode } from 'react';
-import { AuthProvider, useAuth } from '../auth/AuthProvider';
+import { AuthRetryableFetchError } from '@supabase/supabase-js';
+import { AuthProvider, INITIAL_LOAD_TIMEOUT_MS, useAuth } from '../auth/AuthProvider';
 import SignInEmailScreen from '../../app/sign-in-email';
 import SignInScreen from '../../app/sign-in';
 import { AppState, Platform, Text } from 'react-native';
@@ -329,14 +330,39 @@ describe('AuthProvider', () => {
     const a = useAuth();
     return <Text>{`${a.status}|${a.userId}|${a.email}|${a.provider}`}</Text>;
   }
+  /** What the session storage holds under the client's storage key (raw JSON, as auth-js writes it). */
+  let stored: string | null = null;
+  const readStoredSession = jest.fn(async () => stored);
   const wrap = (children: ReactNode) => (
-    <AuthProvider client={mockClient as never}>{children}</AuthProvider>
+    <AuthProvider client={mockClient as never} readStoredSession={readStoredSession}>
+      {children}
+    </AuthProvider>
   );
+  const storedSession = (extra: Record<string, unknown> = {}) =>
+    JSON.stringify({
+      access_token: 'expired-jwt',
+      refresh_token: 'rt-1',
+      expires_at: 1,
+      user: { id: 'u-stored', email: 's@t.co', app_metadata: { provider: 'google' } },
+      ...extra,
+    });
+  /** Captures the auth listener; getSession never resolves unless a test says otherwise. */
+  let listener!: (e: string, s: unknown) => void;
+  const captureListener = () =>
+    mockClient.auth.onAuthStateChange.mockImplementation((cb) => {
+      listener = cb;
+      return { data: { subscription: { unsubscribe: jest.fn() } } };
+    });
 
   beforeEach(() => {
+    stored = null;
+    readStoredSession.mockClear();
     jest.spyOn(AppState, 'addEventListener').mockReturnValue({ remove: jest.fn() } as never);
   });
-  afterEach(() => jest.restoreAllMocks());
+  afterEach(() => {
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+  });
 
   it('is loading until getSession resolves, then follows auth events', async () => {
     let listener!: (e: string, s: unknown) => void;
@@ -372,5 +398,92 @@ describe('AuthProvider', () => {
     });
     await render(wrap(<Probe />));
     expect(screen.getByText('signedIn|u2|x@y.zz|email')).toBeOnTheScreen();
+  });
+
+  // auth-js offline: an expired access token whose refresh fails retryably stays in storage, but
+  // getSession resolves { session: null, error } and INITIAL_SESSION fires with null.
+  it('stays signed in from the stored session when the initial session is null (offline refresh failure)', async () => {
+    captureListener();
+    mockClient.auth.getSession.mockReturnValue(new Promise(() => {}));
+    stored = storedSession();
+    await render(wrap(<Probe />));
+    expect(screen.getByText('loading|null|null|null')).toBeOnTheScreen();
+    await act(async () => listener('INITIAL_SESSION', null));
+    expect(screen.getByText('signedIn|u-stored|s@t.co|google')).toBeOnTheScreen();
+  });
+
+  it('stays signed in from the stored session when getSession reports a retryable error', async () => {
+    mockClient.auth.onAuthStateChange.mockReturnValue({ data: { subscription: { unsubscribe: jest.fn() } } });
+    mockClient.auth.getSession.mockResolvedValue({
+      data: { session: null },
+      error: new AuthRetryableFetchError('Network request failed', 0),
+    });
+    stored = storedSession();
+    await render(wrap(<Probe />));
+    expect(screen.getByText('signedIn|u-stored|s@t.co|google')).toBeOnTheScreen();
+  });
+
+  it('is signed out when the initial session is null and nothing usable is stored', async () => {
+    captureListener();
+    mockClient.auth.getSession.mockReturnValue(new Promise(() => {}));
+    stored = storedSession({ refresh_token: '' });
+    await render(wrap(<Probe />));
+    await act(async () => listener('INITIAL_SESSION', null));
+    expect(screen.getByText('signedOut|null|null|null')).toBeOnTheScreen();
+  });
+
+  it('treats unreadable or malformed storage as signed out', async () => {
+    captureListener();
+    mockClient.auth.getSession.mockReturnValue(new Promise(() => {}));
+    stored = '{not json';
+    await render(wrap(<Probe />));
+    await act(async () => listener('INITIAL_SESSION', null));
+    expect(screen.getByText('signedOut|null|null|null')).toBeOnTheScreen();
+  });
+
+  it('a rejected refresh later (SIGNED_OUT) still signs out after a stored-session start', async () => {
+    captureListener();
+    mockClient.auth.getSession.mockReturnValue(new Promise(() => {}));
+    stored = storedSession();
+    await render(wrap(<Probe />));
+    await act(async () => listener('INITIAL_SESSION', null));
+    expect(screen.getByText('signedIn|u-stored|s@t.co|google')).toBeOnTheScreen();
+    stored = null;
+    await act(async () => listener('SIGNED_OUT', null));
+    expect(screen.getByText('signedOut|null|null|null')).toBeOnTheScreen();
+  });
+
+  it('caps a hung initial load: falls back to the stored session after the timeout', async () => {
+    jest.useFakeTimers();
+    captureListener();
+    mockClient.auth.getSession.mockReturnValue(new Promise(() => {}));
+    stored = storedSession();
+    await render(wrap(<Probe />));
+    await act(() => jest.advanceTimersByTimeAsync(INITIAL_LOAD_TIMEOUT_MS - 1));
+    expect(screen.getByText('loading|null|null|null')).toBeOnTheScreen();
+    await act(() => jest.advanceTimersByTimeAsync(1));
+    expect(screen.getByText('signedIn|u-stored|s@t.co|google')).toBeOnTheScreen();
+    expect(INITIAL_LOAD_TIMEOUT_MS).toBe(10_000);
+  });
+
+  it('caps a hung initial load: signed out after the timeout when nothing is stored', async () => {
+    jest.useFakeTimers();
+    captureListener();
+    mockClient.auth.getSession.mockReturnValue(new Promise(() => {}));
+    await render(wrap(<Probe />));
+    await act(() => jest.advanceTimersByTimeAsync(INITIAL_LOAD_TIMEOUT_MS));
+    expect(screen.getByText('signedOut|null|null|null')).toBeOnTheScreen();
+  });
+
+  it('a real auth event wins over a slower stored-session check', async () => {
+    captureListener();
+    mockClient.auth.getSession.mockReturnValue(new Promise(() => {}));
+    let release!: (v: string | null) => void;
+    readStoredSession.mockImplementationOnce(() => new Promise((r) => (release = r)));
+    await render(wrap(<Probe />));
+    await act(async () => listener('INITIAL_SESSION', null));
+    await act(async () => listener('SIGNED_OUT', null));
+    await act(async () => release(storedSession()));
+    expect(screen.getByText('signedOut|null|null|null')).toBeOnTheScreen();
   });
 });
