@@ -56,4 +56,25 @@ describe('rules schema', () => {
 
   it('rejects duplicate kinds in one version list', () =>
     expect(() => parseSetRules(withVersions('[normal, normal]'), kinds)).toThrow(/duplicate version kind "normal"/));
+
+  it('rejects a misspelled top-level key', () =>
+    expect(() => parseSetRules(`${fixture}overides:\n  x: { versions: [single] }\n`, kinds)).toThrow(/overides/));
+
+  it('rejects a misspelled key inside an override', () =>
+    expect(() =>
+      parseSetRules(`${fixture}overrides:\n  sv03.5-001:\n    version: [single]\n`, kinds),
+    ).toThrow(/version/));
+
+  it('rejects a misspelled key inside an extra card', () =>
+    expect(() =>
+      parseSetRules(
+        `${fixture}extraCards:\n  - id: x\n    category: promos\n    number: "1"\n    versions: [single]\n    sourcecard: { tcgdex: a }\n`,
+        kinds,
+      ),
+    ).toThrow(/sourcecard/));
+
+  it('rejects an unknown key in a version kind', () =>
+    expect(() =>
+      parseVersionKinds('- { id: a, label: A, shortLabel: A, color: red, sortOrder: 0, colour: x }'),
+    ).toThrow(/colour/));
 });

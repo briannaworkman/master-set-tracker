@@ -35,7 +35,7 @@ const versionKindsSchema = z.array(
     shortLabel: z.string().min(1),
     color: z.string().min(1),
     sortOrder: z.number().int(),
-  }),
+  }).strict(),
 );
 
 export function parseVersionKinds(yamlText: string): VersionKind[] {
@@ -60,7 +60,7 @@ const versionList = z.array(z.string()).min(1);
 
 const rulesSchema = z.object({
   id: z.string().min(1),
-  source: z.object({ tcgdex: z.string().min(1) }),
+  source: z.object({ tcgdex: z.string().min(1) }).strict(),
   name: z.string().min(1),
   series: z.string().min(1),
   releaseDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'releaseDate must be YYYY-MM-DD'),
@@ -69,12 +69,12 @@ const rulesSchema = z.object({
       id: z.string().min(1),
       kind: z.enum(['main', 'subset', 'promo_stamped']),
       label: z.string().min(1),
-    }),
+    }).strict(),
   ),
-  categoryRules: z.array(z.object({ match: matchSchema, category: z.string() })).default([]),
-  versionRules: z.array(z.object({ match: matchSchema, versions: versionList })).min(1),
+  categoryRules: z.array(z.object({ match: matchSchema, category: z.string() }).strict()).default([]),
+  versionRules: z.array(z.object({ match: matchSchema, versions: versionList }).strict()).min(1),
   overrides: z
-    .record(z.object({ versions: versionList.optional(), category: z.string().optional() }))
+    .record(z.object({ versions: versionList.optional(), category: z.string().optional() }).strict())
     .default({}),
   extraCards: z
     .array(
@@ -83,12 +83,12 @@ const rulesSchema = z.object({
         category: z.string(),
         number: z.string().min(1),
         name: z.string().optional(),
-        sourceCard: z.object({ tcgdex: z.string().min(1) }).optional(),
+        sourceCard: z.object({ tcgdex: z.string().min(1) }).strict().optional(),
         versions: versionList,
-      }),
+      }).strict(),
     )
     .default([]),
-});
+}).strict();
 
 export function parseSetRules(yamlText: string, kinds: VersionKind[]): SetRules {
   const rules: SetRules = rulesSchema.parse(parse(yamlText));
