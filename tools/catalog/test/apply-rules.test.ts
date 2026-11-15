@@ -10,7 +10,16 @@ import type { SourceCard } from '../src/source/tcgdex.js';
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, '../../..');
 const kinds = parseVersionKinds(readFileSync(resolve(repoRoot, 'catalog/version-kinds.yaml'), 'utf8'));
-const rules = parseSetRules(readFileSync(resolve(here, 'fixtures/rules/sv03.5.yaml'), 'utf8'), kinds);
+const fixtureRules = parseSetRules(readFileSync(resolve(here, 'fixtures/rules/sv03.5.yaml'), 'utf8'), kinds);
+// Every rarity a matcher names must exist in the set, so narrow the fixture's [Common, Uncommon]
+// rule to Common; inputs below then don't all need an Uncommon card.
+const rules: SetRules = {
+  ...fixtureRules,
+  versionRules: [
+    { match: { rarity: ['Common'] }, versions: ['normal', 'reverse', 'pokeball', 'masterball'] },
+    { match: {}, versions: ['single'] },
+  ],
+};
 
 const card = (localId: string, rarity: string | null): SourceCard => ({
   id: `sv03.5-${localId}`,
@@ -155,7 +164,7 @@ describe('applyRules', () => {
           {},
         ),
       ).toThrow(/rule 1 in categoryRules names unknown card "sv03\.5-999"/));
-    it('accepts ids of extra cards', () => {
+    it('fails when a rule names an extra card (rules never apply to extra cards)', () => {
       const r: SetRules = {
         ...withExtra({ id: 'sv03.5-x', category: 'promos', number: 'X', name: 'X', versions: ['single'] }),
         versionRules: [
@@ -163,8 +172,81 @@ describe('applyRules', () => {
           { match: {}, versions: ['single'] },
         ],
       };
-      expect(applyRules(r, cards, {})[0]!.versions).toEqual(['normal']);
+      expect(() => applyRules(r, cards, {})).toThrow(/rule 1 in versionRules names extra card "sv03\.5-x"/);
     });
+    it('fails when one rarity in a multi-value matcher is a typo', () =>
+      expect(() =>
+        applyRules(
+          withVersionRules([
+            { match: { rarity: ['Common', 'Uncommmon'] }, versions: ['normal'] },
+            { match: {}, versions: ['single'] },
+          ]),
+          cards,
+          {},
+        ),
+      ).toThrow(/rule 1 in versionRules names rarity "Uncommmon", which no card in the set has/));
+    it('fails on a rarity typo in a category rule', () =>
+      expect(() =>
+        applyRules(
+          {
+            ...withTrainerGallery,
+            categoryRules: [{ match: { rarity: ['Common', 'Raer'] }, category: 'trainer-gallery' }],
+          },
+          cards,
+          {},
+        ),
+      ).toThrow(/rule 1 in categoryRules names rarity "Raer"/));
+    it('accepts a rarity present only on an extra card source, case-insensitively', () =>
+      expect(
+        applyRules(
+          {
+            ...withExtra({ id: 'sv03.5-x', category: 'promos', number: 'X', sourceCard: { tcgdex: 'p-1' }, versions: ['single'] }),
+            versionRules: [
+              { match: { rarity: ['common', 'Promo'] }, versions: ['normal'] },
+              { match: {}, versions: ['single'] },
+            ],
+          },
+          cards,
+          { 'p-1': { id: 'p-1', localId: '1', name: 'P', rarity: 'PROMO', imageUrl: null } },
+        ),
+      ).toHaveLength(3));
+    it('fails when one id in a multi-id matcher is shadowed by an earlier rule', () =>
+      expect(() =>
+        applyRules(
+          withVersionRules([
+            { match: { ids: ['sv03.5-001'] }, versions: ['normal'] },
+            { match: { ids: ['sv03.5-001', 'sv03.5-003'] }, versions: ['normal', 'reverse'] },
+            { match: {}, versions: ['single'] },
+          ]),
+          cards,
+          {},
+        ),
+      ).toThrow(/rule 2 in versionRules names card "sv03\.5-001", but rule 1 matches it first/));
+    it('fails when a rule names an id its other conditions exclude', () =>
+      expect(() =>
+        applyRules(
+          {
+            ...withTrainerGallery,
+            categoryRules: [{ match: { ids: ['sv03.5-001', 'sv03.5-003'], rarity: ['Double rare'] }, category: 'trainer-gallery' }],
+          },
+          cards,
+          {},
+        ),
+      ).toThrow(/rule 1 in categoryRules names card "sv03\.5-001", but its other conditions exclude that card/));
+    it('fails when an id in a category rule is shadowed', () =>
+      expect(() =>
+        applyRules(
+          {
+            ...withTrainerGallery,
+            categoryRules: [
+              { match: { rarity: ['Common'] }, category: 'promos' },
+              { match: { ids: ['sv03.5-001', 'sv03.5-003'] }, category: 'trainer-gallery' },
+            ],
+          },
+          cards,
+          {},
+        ),
+      ).toThrow(/rule 2 in categoryRules names card "sv03\.5-001", but rule 1 matches it first/));
     it('fails when a non-final version rule matches no cards (rarity typo)', () =>
       expect(() =>
         applyRules(

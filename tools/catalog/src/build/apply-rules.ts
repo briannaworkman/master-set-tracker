@@ -57,7 +57,7 @@ export function applyRules(
   }
 
   // A typo in a matcher must fail loudly, never silently fall through to a later rule.
-  const knownIds = new Set([...cardIds, ...rules.extraCards.map((e) => e.id)]);
+  const extraIds = new Set(rules.extraCards.map((e) => e.id));
   const ruleLists = [
     ['versionRules', rules.versionRules],
     ['categoryRules', rules.categoryRules],
@@ -65,7 +65,13 @@ export function applyRules(
   for (const [list, ruleList] of ruleLists) {
     ruleList.forEach((r, i) => {
       for (const id of r.match.ids ?? []) {
-        if (!knownIds.has(id)) throw new Error(`rule ${i + 1} in ${list} names unknown card "${id}"`);
+        if (extraIds.has(id)) {
+          throw new Error(
+            `rule ${i + 1} in ${list} names extra card "${id}"; rules only apply to TCGdex set cards, ` +
+              'so set the extra card\'s versions and category directly',
+          );
+        }
+        if (!cardIds.has(id)) throw new Error(`rule ${i + 1} in ${list} names unknown card "${id}"`);
       }
     });
   }
@@ -76,6 +82,8 @@ export function applyRules(
   // How many cards each rule is the first match for (overrides don't count against a rule).
   const versionHits = rules.versionRules.map(() => 0);
   const categoryHits = rules.categoryRules.map(() => 0);
+  // Index of the rule that first matches each card, per list.
+  const firstMatch = { versionRules: new Map<string, number>(), categoryRules: new Map<string, number>() };
 
   for (const card of cards) {
     const override = rules.overrides[card.id];
@@ -83,6 +91,8 @@ export function applyRules(
     const versionIndex = rules.versionRules.findIndex((r) => matches(r.match, card));
     if (categoryIndex >= 0) categoryHits[categoryIndex]!++;
     if (versionIndex >= 0) versionHits[versionIndex]!++;
+    firstMatch.categoryRules.set(card.id, categoryIndex);
+    firstMatch.versionRules.set(card.id, versionIndex);
     const categoryId = override?.category ?? rules.categoryRules[categoryIndex]?.category ?? mainCategory;
     const versions = override?.versions ?? rules.versionRules[versionIndex]?.versions;
     if (!versions) throw new Error(`no version rule matches card "${card.id}"`);
@@ -129,6 +139,29 @@ export function applyRules(
   categoryHits.forEach((n, i) => {
     if (n === 0) throw new Error(`rule ${i + 1} in categoryRules matches no cards`);
   });
+
+  // A live rule can still hide a typo in one entry of a multi-value matcher.
+  const knownRarities = new Set(
+    [...cards, ...Object.values(extraSources)].flatMap((c) => (c.rarity === null ? [] : [c.rarity.toLowerCase()])),
+  );
+  for (const [list, ruleList] of ruleLists) {
+    ruleList.forEach((r, i) => {
+      for (const rarity of r.match.rarity ?? []) {
+        if (!knownRarities.has(rarity.toLowerCase())) {
+          throw new Error(`rule ${i + 1} in ${list} names rarity "${rarity}", which no card in the set has`);
+        }
+      }
+      for (const id of r.match.ids ?? []) {
+        const first = firstMatch[list].get(id)!;
+        if (first >= 0 && first < i) {
+          throw new Error(`rule ${i + 1} in ${list} names card "${id}", but rule ${first + 1} matches it first`);
+        }
+        if (first !== i) {
+          throw new Error(`rule ${i + 1} in ${list} names card "${id}", but its other conditions exclude that card`);
+        }
+      }
+    });
+  }
 
   return rules.categories.flatMap((c) => [
     ...byCategory.get(c.id)!.sort((a, b) => compareNumbers(a.number, b.number)),

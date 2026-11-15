@@ -154,11 +154,14 @@ You need Node 22 and pnpm. Run commands from the repository root.
      `ids`. The last rule must be `match: {}`.
    - In both rule lists, **the first matching rule wins**, so put narrow rules
      (e.g. a list of `ids`) before broad ones (e.g. a `rarity`).
-   - The build **fails** if a rule's `ids` names a card that isn't in the set,
-     or if any category rule or non-final version rule is the first match for
-     no card at all. A failure like that usually means a typo (e.g. a misspelt
-     rarity) or a rule hidden behind an earlier one. The final `match: {}`
-     version rule may match nothing.
+   - The build **fails** if a rule's `ids` names a card that isn't in the set
+     (or names an extra card: rules only apply to TCGdex set cards), if an id
+     in a rule's `ids` is matched first by an earlier rule, if any `rarity` in
+     a matcher isn't a rarity some card in the set actually has, or if any
+     category rule or non-final version rule is the first match for no card at
+     all. A failure like that usually means a typo (e.g. a misspelt rarity) or
+     a rule hidden behind an earlier one. The final `match: {}` version rule
+     may match nothing.
    - `overrides`: per-card exceptions, keyed by card id like `sv08.5-093`.
    - `extraCards`: stamped or promo cards that aren't in the TCGdex set list.
    - Put your sources in a comment at the top. Check versions against at least
