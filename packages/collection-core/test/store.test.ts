@@ -117,6 +117,35 @@ describe('CollectionStore robustness', () => {
   });
 });
 
+describe('CollectionStore unchanged writes', () => {
+  it.each([
+    ['tap at 999', (s: CollectionStore) => s.tap('a', 'c-001', 'normal')],
+    ['setCount above the cap', (s: CollectionStore) => s.setCount('a', 'c-001', 'normal', 1200)],
+    ['setCount to the same value', (s: CollectionStore) => s.setCount('a', 'c-001', 'normal', 999)],
+  ])('%s does not write, emit or replace the counts reference', (_n, act) => {
+    const repo = createMemoryRepo();
+    const store = new CollectionStore(repo);
+    store.setCount('a', 'c-001', 'normal', 999);
+    const ref = store.getCounts('a');
+    const write = vi.spyOn(repo, 'setCount');
+    const listener = vi.fn();
+    store.subscribe(listener);
+    act(store);
+    expect(write).not.toHaveBeenCalled();
+    expect(listener).not.toHaveBeenCalled();
+    expect(store.getCounts('a')).toBe(ref);
+  });
+
+  it('setCount(0) on a version never owned does not write', () => {
+    const repo = createMemoryRepo();
+    const store = new CollectionStore(repo);
+    const write = vi.spyOn(repo, 'setCount');
+    store.setCount('a', 'c-001', 'normal', 0);
+    store.setCount('a', 'c-001', 'normal', -3);
+    expect(write).not.toHaveBeenCalled();
+  });
+});
+
 describe('CollectionStore cross-set writes', () => {
   it.each([
     ['memory', () => createMemoryRepo()],

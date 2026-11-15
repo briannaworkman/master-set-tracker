@@ -1,5 +1,5 @@
 import type { Counts } from './keys';
-import { versionKey } from './keys';
+import { clampCount, versionKey } from './keys';
 import type { CollectionRepo, TrackedSet } from './db/sql-db';
 
 export class CollectionStore {
@@ -48,13 +48,16 @@ export class CollectionStore {
   }
 
   tap(setId: string, cardId: string, kind: string): void {
-    const current = this.repo.countsForSet(setId)[versionKey(cardId, kind)] ?? 0;
+    const current = this.getCounts(setId)[versionKey(cardId, kind)] ?? 0;
     this.setCount(setId, cardId, kind, current + 1);
   }
 
+  /** Clamps to 0..999; a write that would not change the stored count is skipped entirely. */
   setCount(setId: string, cardId: string, kind: string, n: number): void {
-    this.repo.setCount(setId, cardId, kind, n, this.now());
     const key = versionKey(cardId, kind);
+    const next = clampCount(n);
+    if ((this.getCounts(setId)[key] ?? 0) === next) return;
+    this.repo.setCount(setId, cardId, kind, next, this.now());
     this.counts.set(setId, this.repo.countsForSet(setId));
     // The row is keyed globally, so another set's cached counts may have lost it.
     for (const [other, c] of this.counts) {

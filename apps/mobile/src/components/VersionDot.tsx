@@ -5,6 +5,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useTheme } from '../theme/useTheme';
 
 const RAINBOW = ['#A5B4FC', '#F9A8D4', '#86EFAC', '#FDE68A'] as const;
+const MAX_COUNT = 999;
 
 /** The dot (and duplicate badge) without any press handling, for read-only displays. */
 export function DotMark({ kind, count }: { kind: VersionKind; count: number }) {
@@ -48,7 +49,8 @@ export function VersionDot({
       hitSlop={{ top: 8, bottom: 8, left: 2, right: 2 }}
       delayLongPress={350}
       onPress={() => {
-        void Haptics.selectionAsync();
+        // At the cap a tap can't change anything, so don't signal one.
+        if (count < MAX_COUNT) void Haptics.selectionAsync();
         onTap();
       }}
       onLongPress={onLongPress}

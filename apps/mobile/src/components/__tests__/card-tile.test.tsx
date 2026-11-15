@@ -37,6 +37,17 @@ it('taps a dot to add one', async () => {
   expect(Haptics.selectionAsync).toHaveBeenCalled();
 });
 
+it('does not fire a haptic when the count is already at the 999 cap', async () => {
+  const onTap = jest.fn();
+  await render(
+    <TestProviders>
+      <VersionDot kind={kindsById.normal!} count={999} onTap={onTap} onLongPress={jest.fn()} accessibilityLabel="d" />
+    </TestProviders>,
+  );
+  await fireEvent.press(screen.getByRole('button', { name: 'd' }));
+  expect(Haptics.selectionAsync).not.toHaveBeenCalled();
+});
+
 it('long-presses a dot to open the counter', async () => {
   const { props } = await tile();
   await fireEvent(screen.getByRole('button', { name: /Normal, 0 owned$/ }), 'longPress');
