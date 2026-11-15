@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { VersionKindId } from '@mst/catalog-core';
-import { assignPositions } from '../src/build/positions.js';
+import { assignPositions, parseLock } from '../src/build/positions.js';
 import type { PositionResult } from '../src/build/positions.js';
 import type { DraftCard } from '../src/build/apply-rules.js';
 
@@ -109,4 +109,32 @@ describe('assignPositions', () => {
     expect(r.lock.positions).not.toBe(first.lock.positions);
     expect(r.lock.retired).not.toBe(first.lock.retired);
   });
+});
+
+describe('parseLock', () => {
+  const valid = { setId: 's', catalogVersion: 2, positions: { 'a:normal': 0, 'a:reverse': 2 }, retired: [1] };
+  const bad = (patch: Record<string, unknown>) => ({ ...valid, ...patch });
+
+  it('accepts a well-formed lock', () => expect(parseLock(valid, 'locks/s.lock.json')).toEqual(valid));
+
+  it.each([
+    ['a missing field', { retired: undefined }],
+    ['an unknown field', { extra: 1 }],
+    ['a non-integer position', { positions: { 'a:normal': 0.5 } }],
+    ['a negative position', { positions: { 'a:normal': -1 } }],
+    ['a negative retired position', { retired: [-1] }],
+    ['catalogVersion below 1', { catalogVersion: 0 }],
+    ['an empty setId', { setId: '' }],
+  ])('rejects %s, naming the lock path', (_label, patch) =>
+    expect(() => parseLock(bad(patch), 'locks/s.lock.json')).toThrow(/locks\/s\.lock\.json/));
+
+  it('rejects two keys sharing a position', () =>
+    expect(() => parseLock(bad({ positions: { 'a:normal': 0, 'a:reverse': 0 } }), 'L')).toThrow(
+      /L.*position 0 is used by both "a:normal" and "a:reverse"/,
+    ));
+  it('rejects a position that is also retired', () =>
+    expect(() => parseLock(bad({ retired: [2] }), 'L')).toThrow(/L.*position 2 .*"a:reverse".* retired/));
+  it('rejects a duplicate retired position', () =>
+    expect(() => parseLock(bad({ retired: [1, 1] }), 'L')).toThrow(/L.*retired position 1 is listed twice/));
+  it('rejects a non-object', () => expect(() => parseLock(null, 'L')).toThrow(/L/));
 });

@@ -4,7 +4,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { CatalogIndex, SetCatalog } from '@mst/catalog-core';
 import { buildSet } from './build/build-set.js';
-import type { PositionLock } from './build/positions.js';
+import { parseLock, type PositionLock } from './build/positions.js';
 import { toChecklistCsv } from './checklist/csv.js';
 import { writeFileAtomic } from './fs/atomic.js';
 import { parseSetRules, parseVersionKinds } from './rules/schema.js';
@@ -27,7 +27,13 @@ async function listIds(dir: string, suffix: string): Promise<string[]> {
 
 async function readLock(path: string, setId: string): Promise<PositionLock | null> {
   if (!existsSync(path)) return null;
-  const lock = JSON.parse(await readFile(path, 'utf8')) as PositionLock;
+  let data: unknown;
+  try {
+    data = JSON.parse(await readFile(path, 'utf8'));
+  } catch (err) {
+    throw new Error(`invalid lock file ${path}: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  const lock = parseLock(data, path);
   if (lock.setId !== setId) {
     throw new Error(`lock file ${path} is for set "${lock.setId}", not "${setId}"`);
   }

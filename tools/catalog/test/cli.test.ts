@@ -146,6 +146,23 @@ describe('runCli', () => {
     expect(logs.join('\n')).toMatch(/other/);
   });
 
+  it('rejects a malformed lock, naming its path', async () => {
+    await runCli(['publish', 'sv03.5'], deps);
+    const lock = json('catalog/locks/sv03.5.lock.json');
+    const [first, second] = Object.keys(lock.positions) as [string, string];
+    lock.positions[second] = lock.positions[first];
+    writeFileSync(p('catalog/locks/sv03.5.lock.json'), JSON.stringify(lock));
+    expect(await runCli(['build', 'sv03.5'], deps)).toBe(1);
+    expect(logs.join('\n')).toMatch(/sv03\.5\.lock\.json.*position \d+ is used by both/);
+  });
+
+  it('rejects a lock that is not valid JSON, naming its path', async () => {
+    await runCli(['publish', 'sv03.5'], deps);
+    writeFileSync(p('catalog/locks/sv03.5.lock.json'), '{ nope');
+    expect(await runCli(['build', 'sv03.5'], deps)).toBe(1);
+    expect(logs.join('\n')).toMatch(/sv03\.5\.lock\.json/);
+  });
+
   it('warns when fetched card count differs from the source total', async () => {
     source.setTotal(5);
     expect(await runCli(['build', 'sv03.5'], deps)).toBe(0);

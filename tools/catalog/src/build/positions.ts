@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import type { CatalogCard } from '@mst/catalog-core';
 import type { DraftCard } from './apply-rules.js';
 
@@ -7,6 +8,46 @@ export interface PositionLock {
   /** key: `${cardId}:${kind}` */
   positions: Record<string, number>;
   retired: number[];
+}
+
+const position = z.number().int().nonnegative();
+const lockSchema = z
+  .object({
+    setId: z.string().min(1),
+    catalogVersion: z.number().int().min(1),
+    positions: z.record(position),
+    retired: z.array(position),
+  })
+  .strict();
+
+/**
+ * Validates a parsed lock file. Positions must be non-negative integers, used by
+ * one key each, and never also retired; retired positions must be unique.
+ */
+export function parseLock(data: unknown, path: string): PositionLock {
+  const parsed = lockSchema.safeParse(data);
+  if (!parsed.success) {
+    const issues = parsed.error.issues.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`).join('; ');
+    throw new Error(`invalid lock file ${path}: ${issues}`);
+  }
+  const lock = parsed.data;
+  const fail = (msg: string): never => {
+    throw new Error(`invalid lock file ${path}: ${msg}`);
+  };
+  const owner = new Map<number, string>();
+  for (const [key, p] of Object.entries(lock.positions)) {
+    const other = owner.get(p);
+    if (other !== undefined) fail(`position ${p} is used by both "${other}" and "${key}"`);
+    owner.set(p, key);
+  }
+  const retired = new Set<number>();
+  for (const p of lock.retired) {
+    if (retired.has(p)) fail(`retired position ${p} is listed twice`);
+    retired.add(p);
+    const key = owner.get(p);
+    if (key !== undefined) fail(`position ${p} is assigned to "${key}" but also retired`);
+  }
+  return lock;
 }
 
 export interface PositionResult {
