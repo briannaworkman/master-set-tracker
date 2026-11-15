@@ -1,5 +1,6 @@
 import { clampCount, versionKey, type VersionKey } from '../keys';
 import { migrate } from './migrations';
+import { isNewer, type CollectionRow, type LocalChanges, type TrackedRow } from '../sync/types';
 import type { CollectionRepo, SqlDb, TrackedSet } from './sql-db';
 
 function parseIds(raw: string): string[] {
@@ -27,14 +28,14 @@ export function createSqliteRepo(db: SqlDb): CollectionRepo {
     },
     trackSet(setId, now) {
       db.run(
-        `INSERT INTO tracked_sets (set_id, hidden_category_ids, added_at, updated_at) VALUES (?, '[]', ?, ?)
-         ON CONFLICT (set_id) DO UPDATE SET removed_at = NULL, added_at = excluded.added_at, updated_at = excluded.updated_at
+        `INSERT INTO tracked_sets (set_id, hidden_category_ids, added_at, updated_at, dirty) VALUES (?, '[]', ?, ?, 1)
+         ON CONFLICT (set_id) DO UPDATE SET removed_at = NULL, added_at = excluded.added_at, updated_at = excluded.updated_at, dirty = 1
          WHERE tracked_sets.removed_at IS NOT NULL`,
         [setId, now, now],
       );
     },
     untrackSet(setId, now) {
-      db.run('UPDATE tracked_sets SET removed_at = ?, updated_at = ? WHERE set_id = ? AND removed_at IS NULL', [
+      db.run('UPDATE tracked_sets SET removed_at = ?, updated_at = ?, dirty = 1 WHERE set_id = ? AND removed_at IS NULL', [
         now,
         now,
         setId,
@@ -42,7 +43,7 @@ export function createSqliteRepo(db: SqlDb): CollectionRepo {
     },
     setHiddenCategories(setId, ids, now) {
       db.run(
-        `UPDATE tracked_sets SET hidden_category_ids = ?, updated_at = ?
+        `UPDATE tracked_sets SET hidden_category_ids = ?, updated_at = ?, dirty = 1
          WHERE set_id = ? AND removed_at IS NULL AND hidden_category_ids IS NOT ?`,
         [JSON.stringify(ids), now, setId, JSON.stringify(ids)],
       );
@@ -58,11 +59,123 @@ export function createSqliteRepo(db: SqlDb): CollectionRepo {
       return out;
     },
     setCount(setId, cardId, kind, count, now) {
+      const next = clampCount(count);
+      const cur = db.first<{ set_id: string; count: number }>('SELECT set_id, count FROM collection WHERE card_id = ? AND kind = ?', [
+        cardId,
+        kind,
+      ]);
+      if (cur ? cur.count === next && cur.set_id === setId : next === 0) return;
       db.run(
-        `INSERT INTO collection (set_id, card_id, kind, count, updated_at) VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT (card_id, kind) DO UPDATE SET set_id = excluded.set_id, count = excluded.count, updated_at = excluded.updated_at`,
-        [setId, cardId, kind, clampCount(count), now],
+        `INSERT INTO collection (set_id, card_id, kind, count, updated_at, dirty) VALUES (?, ?, ?, ?, ?, 1)
+         ON CONFLICT (card_id, kind) DO UPDATE SET set_id = excluded.set_id, count = excluded.count, updated_at = excluded.updated_at, dirty = 1`,
+        [setId, cardId, kind, next, now],
       );
     },
+    dirtyChanges(limit) {
+      const collection = db
+        .all<{ card_id: string; kind: string; set_id: string; count: number; updated_at: string }>(
+          'SELECT card_id, kind, set_id, count, updated_at FROM collection WHERE dirty = 1 ORDER BY updated_at ASC, rowid ASC LIMIT ?',
+          [limit],
+        )
+        .map((r): CollectionRow => ({ cardId: r.card_id, kind: r.kind, setId: r.set_id, count: r.count, updatedAt: r.updated_at }));
+      const tracked = db
+        .all<TrackedDbRow>(
+          'SELECT set_id, hidden_category_ids, added_at, removed_at, updated_at FROM tracked_sets WHERE dirty = 1 ORDER BY updated_at ASC, rowid ASC LIMIT ?',
+          [limit],
+        )
+        .map(toTrackedRow);
+      return takeOldest(collection, tracked, limit);
+    },
+    markSynced(changes) {
+      db.transaction(() => {
+        for (const r of changes.collection) {
+          db.run('UPDATE collection SET dirty = 0 WHERE card_id = ? AND kind = ? AND updated_at = ?', [r.cardId, r.kind, r.updatedAt]);
+        }
+        for (const r of changes.tracked) {
+          db.run('UPDATE tracked_sets SET dirty = 0 WHERE set_id = ? AND updated_at = ?', [r.setId, r.updatedAt]);
+        }
+      });
+    },
+    applyRemote(changes) {
+      return db.transaction(() => {
+        const affected = new Set<string>();
+        for (const r of changes.collection) {
+          const local = db.first<{ set_id: string; updated_at: string }>(
+            'SELECT set_id, updated_at FROM collection WHERE card_id = ? AND kind = ?',
+            [r.cardId, r.kind],
+          );
+          if (local && !isNewer(r.updatedAt, local.updated_at)) continue;
+          db.run(
+            `INSERT INTO collection (set_id, card_id, kind, count, updated_at, dirty) VALUES (?, ?, ?, ?, ?, 0)
+             ON CONFLICT (card_id, kind) DO UPDATE SET set_id = excluded.set_id, count = excluded.count, updated_at = excluded.updated_at, dirty = 0`,
+            [r.setId, r.cardId, r.kind, clampCount(r.count), r.updatedAt],
+          );
+          affected.add(r.setId);
+          if (local) affected.add(local.set_id);
+        }
+        for (const r of changes.tracked) {
+          const local = db.first<{ updated_at: string }>('SELECT updated_at FROM tracked_sets WHERE set_id = ?', [r.setId]);
+          if (local && !isNewer(r.updatedAt, local.updated_at)) continue;
+          db.run(
+            `INSERT INTO tracked_sets (set_id, hidden_category_ids, added_at, removed_at, updated_at, dirty) VALUES (?, ?, ?, ?, ?, 0)
+             ON CONFLICT (set_id) DO UPDATE SET hidden_category_ids = excluded.hidden_category_ids, added_at = excluded.added_at,
+               removed_at = excluded.removed_at, updated_at = excluded.updated_at, dirty = 0`,
+            [r.setId, JSON.stringify(r.hiddenCategoryIds), r.addedAt, r.removedAt, r.updatedAt],
+          );
+          affected.add(r.setId);
+        }
+        return { affectedSetIds: [...affected] };
+      });
+    },
+    getSyncState() {
+      const r = db.first<{ cursor: number; last_synced_at: string | null }>('SELECT cursor, last_synced_at FROM sync_state WHERE id = 1');
+      return { cursor: r?.cursor ?? 0, lastSyncedAt: r?.last_synced_at ?? null };
+    },
+    setSyncState(s) {
+      db.run(
+        `INSERT INTO sync_state (id, cursor, last_synced_at) VALUES (1, ?, ?)
+         ON CONFLICT (id) DO UPDATE SET cursor = excluded.cursor, last_synced_at = excluded.last_synced_at`,
+        [s.cursor, s.lastSyncedAt],
+      );
+    },
+    dirtyCount() {
+      const c = db.first<{ n: number }>('SELECT (SELECT count(*) FROM collection WHERE dirty = 1) + (SELECT count(*) FROM tracked_sets WHERE dirty = 1) AS n');
+      return c?.n ?? 0;
+    },
+    wipe() {
+      db.transaction(() => {
+        for (const t of ['collection', 'tracked_sets', 'sync_state', 'prices']) db.run(`DELETE FROM ${t}`);
+      });
+    },
   };
+}
+
+interface TrackedDbRow {
+  set_id: string;
+  hidden_category_ids: string;
+  added_at: string;
+  removed_at: string | null;
+  updated_at: string;
+}
+
+const toTrackedRow = (r: TrackedDbRow): TrackedRow => ({
+  setId: r.set_id,
+  hiddenCategoryIds: parseIds(r.hidden_category_ids),
+  addedAt: r.added_at,
+  removedAt: r.removed_at,
+  updatedAt: r.updated_at,
+});
+
+/** Keeps the `limit` oldest rows across both lists, preserving each list's order. */
+export function takeOldest(collection: CollectionRow[], tracked: TrackedRow[], limit: number): LocalChanges {
+  const merged = [
+    ...collection.map((row, i) => ({ row, i, kind: 0 as const })),
+    ...tracked.map((row, i) => ({ row, i, kind: 1 as const })),
+  ].sort((a, b) => (a.row.updatedAt < b.row.updatedAt ? -1 : a.row.updatedAt > b.row.updatedAt ? 1 : a.kind - b.kind || a.i - b.i));
+  const out: LocalChanges = { collection: [], tracked: [] };
+  for (const m of merged.slice(0, Math.max(0, limit))) {
+    if (m.kind === 0) out.collection.push(m.row as CollectionRow);
+    else out.tracked.push(m.row as TrackedRow);
+  }
+  return out;
 }

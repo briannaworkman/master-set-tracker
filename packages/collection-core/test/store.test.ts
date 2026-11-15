@@ -171,6 +171,59 @@ describe('migrate', () => {
     const db = createBetterSqliteDb();
     migrate(db);
     expect(() => migrate(db)).not.toThrow();
-    expect(db.first<{ user_version: number }>('PRAGMA user_version')!.user_version).toBe(2);
+    expect(db.first<{ user_version: number }>('PRAGMA user_version')!.user_version).toBe(3);
+  });
+});
+
+describe('CollectionStore sync support', () => {
+  const remote = (cardId: string, setId: string, count: number, updatedAt: string) => ({ cardId, kind: 'normal', setId, count, updatedAt });
+
+  it.each([
+    ['memory', () => createMemoryRepo()],
+    ['sqlite', () => createSqliteRepo(createBetterSqliteDb())],
+  ])('applyRemote refreshes only affected sets and emits once (%s)', (_n, make) => {
+    const store = new CollectionStore(make(), () => '2026-01-01T00:00:00.000Z');
+    store.track('a');
+    store.tap('a', 'c-1', 'normal');
+    store.tap('b', 'c-2', 'normal');
+    const a = store.getCounts('a');
+    const b = store.getCounts('b');
+    const trackedRef = store.getTracked();
+    const listener = vi.fn();
+    store.subscribe(listener);
+    store.applyRemote({
+      collection: [remote('c-1', 'a', 4, '2026-02-01T00:00:00.000Z'), remote('c-9', 'a', 1, '2026-02-01T00:00:00.000Z')],
+      tracked: [{ setId: 'z', hiddenCategoryIds: [], addedAt: '2026-02-01T00:00:00.000Z', removedAt: null, updatedAt: '2026-02-01T00:00:00.000Z' }],
+    });
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(store.getCounts('a')).toEqual({ 'c-1:normal': 4, 'c-9:normal': 1 });
+    expect(store.getCounts('a')).not.toBe(a);
+    expect(store.getCounts('b')).toBe(b);
+    expect(store.getTracked()).not.toBe(trackedRef);
+    expect(store.getTracked().map((t) => t.setId)).toEqual(['a', 'z']);
+  });
+
+  it('applyRemote emits nothing when every remote row loses', () => {
+    const store = new CollectionStore(createMemoryRepo(), () => '2026-03-01T00:00:00.000Z');
+    store.tap('a', 'c-1', 'normal');
+    const listener = vi.fn();
+    store.subscribe(listener);
+    store.applyRemote({ collection: [remote('c-1', 'a', 8, '2026-01-01T00:00:00.000Z')], tracked: [] });
+    expect(listener).not.toHaveBeenCalled();
+    expect(store.getCounts('a')).toEqual({ 'c-1:normal': 1 });
+  });
+
+  it('wipe resets caches and emits once', () => {
+    const repo = createSqliteRepo(createBetterSqliteDb());
+    const store = new CollectionStore(repo);
+    store.track('a');
+    store.tap('a', 'c-1', 'normal');
+    const listener = vi.fn();
+    store.subscribe(listener);
+    store.wipe();
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(store.getTracked()).toEqual([]);
+    expect(store.getCounts('a')).toEqual({});
+    expect(repo.dirtyCount()).toBe(0);
   });
 });

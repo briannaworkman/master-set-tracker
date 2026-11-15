@@ -1,5 +1,6 @@
 import { expect, it } from 'vitest';
 import { createSqliteRepo } from '../src/db/sqlite-repo';
+import { createSqlitePriceCache } from '../src/prices/price-cache';
 import { createBetterSqliteDb } from './better-sqlite-db';
 import { runRepoContract } from './repo.contract';
 
@@ -55,4 +56,13 @@ it('sqlite does not touch updated_at for no-op changes', () => {
   repo.untrackSet('a', 't5');
   repo.setHiddenCategories('a', [], 't6');
   expect(row(db, 'a')).toMatchObject({ updated_at: 't4', removed_at: 't4', hidden_category_ids: '["promos"]' });
+});
+
+it('sqlite wipe also clears cached prices', () => {
+  const db = createBetterSqliteDb();
+  const repo = createSqliteRepo(db);
+  const cache = createSqlitePriceCache(db);
+  cache.put('a', 't0', { 'c-1|normal': 1 });
+  repo.wipe();
+  expect(cache.get('a')).toBeNull();
 });

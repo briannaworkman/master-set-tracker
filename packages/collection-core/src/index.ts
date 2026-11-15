@@ -7,3 +7,6 @@ export * from './db/migrations';
 export * from './db/sqlite-repo';
 export * from './db/memory-repo';
 export * from './store';
+export * from './sync/types';
+export * from './prices/price-variant';
+export * from './prices/price-cache';

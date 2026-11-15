@@ -26,6 +26,22 @@ ALTER TABLE tracked_sets ADD COLUMN removed_at TEXT;
 ALTER TABLE tracked_sets ADD COLUMN updated_at TEXT NOT NULL DEFAULT '';
 `;
 
+/** v3: dirty flags for sync (existing rows start dirty so the first sign-in uploads them), sync cursor and price cache. */
+const SCHEMA_V3 = `
+ALTER TABLE collection ADD COLUMN dirty INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE tracked_sets ADD COLUMN dirty INTEGER NOT NULL DEFAULT 1;
+CREATE TABLE sync_state (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  cursor INTEGER NOT NULL,
+  last_synced_at TEXT
+);
+CREATE TABLE prices (
+  set_id TEXT PRIMARY KEY,
+  fetched_at TEXT NOT NULL,
+  json TEXT NOT NULL
+);
+`;
+
 /** Step N upgrades a database at user_version N-1 to N. Each step runs in its own transaction. */
 const STEPS: Array<(db: SqlDb) => void> = [
   (db) => db.exec(SCHEMA_V1),
@@ -33,6 +49,7 @@ const STEPS: Array<(db: SqlDb) => void> = [
     db.exec(SCHEMA_V2);
     db.run('UPDATE tracked_sets SET updated_at = added_at');
   },
+  (db) => db.exec(SCHEMA_V3),
 ];
 
 export function migrate(db: SqlDb): void {

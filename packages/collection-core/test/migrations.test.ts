@@ -56,7 +56,7 @@ describe('migrate v1 -> v2', () => {
   it('adds removed_at/updated_at to tracked_sets and keeps existing rows', () => {
     const db = v1Db();
     migrate(db);
-    expect(userVersion(db)).toBe(2);
+    expect(userVersion(db)).toBe(3);
     expect(db.all('SELECT set_id, hidden_category_ids, added_at, updated_at, removed_at FROM tracked_sets ORDER BY set_id')).toEqual([
       { set_id: 'a', hidden_category_ids: '["promos"]', added_at: 't0', updated_at: 't0', removed_at: null },
       { set_id: 'b', hidden_category_ids: '[]', added_at: 't1', updated_at: 't1', removed_at: null },
@@ -74,12 +74,38 @@ describe('migrate v1 -> v2', () => {
     expect(cols).toEqual(['set_id', 'hidden_category_ids', 'added_at']);
   });
 
-  it('migrates a fresh database straight to v2 and is idempotent', () => {
+  it('migrates a fresh database straight to v3 and is idempotent', () => {
     const db = createBetterSqliteDb();
     migrate(db);
     migrate(db);
-    expect(userVersion(db)).toBe(2);
+    expect(userVersion(db)).toBe(3);
     const cols = db.all<{ name: string }>('PRAGMA table_info(tracked_sets)').map((c) => c.name);
-    expect(cols).toEqual(['set_id', 'hidden_category_ids', 'added_at', 'removed_at', 'updated_at']);
+    expect(cols).toEqual(['set_id', 'hidden_category_ids', 'added_at', 'removed_at', 'updated_at', 'dirty']);
+  });
+});
+
+describe('migrate v2 -> v3', () => {
+  it('keeps rows and marks them dirty, adding sync_state and prices', () => {
+    const db = v1Db();
+    db.exec('PRAGMA user_version = 1');
+    // bring to v2 only, by running the v2 statements manually
+    db.exec("ALTER TABLE tracked_sets ADD COLUMN removed_at TEXT; ALTER TABLE tracked_sets ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''; UPDATE tracked_sets SET updated_at = added_at; PRAGMA user_version = 2;");
+    migrate(db);
+    expect(userVersion(db)).toBe(3);
+    expect(db.all('SELECT set_id, dirty FROM tracked_sets ORDER BY set_id')).toEqual([
+      { set_id: 'a', dirty: 1 },
+      { set_id: 'b', dirty: 1 },
+    ]);
+    expect(db.all('SELECT card_id, count, dirty FROM collection')).toEqual([{ card_id: 'a-1', count: 3, dirty: 1 }]);
+    expect(tables(db)).toEqual(['collection', 'prices', 'sync_state', 'tracked_sets']);
+  });
+
+  it('rolls the v3 step back if it fails', () => {
+    const db2 = v1Db();
+    db2.exec("ALTER TABLE tracked_sets ADD COLUMN removed_at TEXT; ALTER TABLE tracked_sets ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''; PRAGMA user_version = 2;");
+    expect(() => migrate(failingOn(db2, 'PRAGMA user_version = 3'))).toThrow('injected failure');
+    expect(userVersion(db2)).toBe(2);
+    expect(tables(db2)).toEqual(['collection', 'tracked_sets']);
+    expect(db2.all<{ name: string }>('PRAGMA table_info(collection)').map((c) => c.name)).not.toContain('dirty');
   });
 });

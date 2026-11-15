@@ -1,6 +1,7 @@
 import type { Counts } from './keys';
 import { clampCount, versionKey } from './keys';
 import type { CollectionRepo, TrackedSet } from './db/sql-db';
+import type { LocalChanges } from './sync/types';
 
 export class CollectionStore {
   private listeners = new Set<() => void>();
@@ -66,11 +67,37 @@ export class CollectionStore {
     this.emit();
   }
 
-  private refreshTracked(): void {
-    const next = this.repo.listTracked();
-    if (JSON.stringify(next) === JSON.stringify(this.tracked)) return;
-    this.tracked = next;
+  /** Applies server rows; refreshes only the affected sets' cached counts and emits at most once. */
+  applyRemote(changes: LocalChanges): void {
+    const { affectedSetIds } = this.repo.applyRemote(changes);
+    let changed = this.updateTracked();
+    for (const setId of affectedSetIds) {
+      if (!this.counts.has(setId)) continue;
+      const next = this.repo.countsForSet(setId);
+      if (JSON.stringify(next) === JSON.stringify(this.counts.get(setId))) continue;
+      this.counts.set(setId, next);
+      changed = true;
+    }
+    if (changed) this.emit();
+  }
+
+  /** Clears all local data (sign-out), resets the caches and emits once. */
+  wipe(): void {
+    this.repo.wipe();
+    this.counts.clear();
+    this.tracked = this.repo.listTracked();
     this.emit();
+  }
+
+  private updateTracked(): boolean {
+    const next = this.repo.listTracked();
+    if (JSON.stringify(next) === JSON.stringify(this.tracked)) return false;
+    this.tracked = next;
+    return true;
+  }
+
+  private refreshTracked(): void {
+    if (this.updateTracked()) this.emit();
   }
 
   /** Calls every listener; rethrows the first error afterwards so none is swallowed. */
