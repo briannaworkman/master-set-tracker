@@ -1,5 +1,5 @@
 import { CollectionStore, createMemoryRepo, type PriceBook } from '@mst/collection-core';
-import { fireEvent, render, screen, within } from '@testing-library/react-native';
+import { fireEvent, render, screen } from '@testing-library/react-native';
 import { Alert } from 'react-native';
 import CardDetail from '../../app/set/[id]/card/[cardId]';
 import SetScreen from '../../app/set/[id]/index';
@@ -83,8 +83,7 @@ it('disables switches and hides Remove for an untracked set', async () => {
 it('changes counts from card detail', async () => {
   const store = newStore();
   await open(<CardDetail />, store);
-  const row = screen.getByTestId('version-row-reverse');
-  await fireEvent.press(within(row).getByRole('button', { name: 'Increase' }));
+  await fireEvent.press(screen.getByRole('button', { name: 'Increase Reverse Holo' }));
   expect(store.getCounts('fx')['c-001:reverse']).toBe(1);
   await screen.unmount();
   await open(<SetScreen />, store);
@@ -105,4 +104,16 @@ it('shows a known price and singular spare', async () => {
   await open(<CardDetail />, store, { price: (_s, k) => (k === 'c-001:normal' ? 1.5 : null) });
   expect(screen.getByText('$1.50')).toBeOnTheScreen();
   expect(screen.getByText('1 spare to trade')).toBeOnTheScreen();
+});
+
+it('shows the category label for a non-main card', async () => {
+  mockParams = { id: 'fx', cardId: 'p-1' };
+  await open(<CardDetail />, newStore());
+  expect(screen.getByText('Promos & stamped')).toBeOnTheScreen();
+  expect(screen.getByRole('button', { name: 'Decrease Single' })).toBeOnTheScreen();
+});
+
+it('omits the category label for a main card', async () => {
+  await open(<CardDetail />, newStore());
+  expect(screen.queryByText('Main set')).toBeNull();
 });

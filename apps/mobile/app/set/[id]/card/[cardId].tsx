@@ -84,7 +84,7 @@ export default function CardDetail() {
                 {kind.label}
               </Text>
               <Text style={[styles.price, { color: theme.muted }]}>{price == null ? '—' : `$${price.toFixed(2)}`}</Text>
-              <Stepper value={count} onChange={(n) => store.setCount(id, card.id, v.kind, n)} />
+              <Stepper label={kind.label} value={count} onChange={(n) => store.setCount(id, card.id, v.kind, n)} />
             </View>
           );
         })}

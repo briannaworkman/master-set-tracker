@@ -84,7 +84,7 @@ export default function SetSettings() {
           onPress={confirmRemove}
           style={[styles.group, styles.remove, { backgroundColor: theme.surface, borderColor: theme.border }]}
         >
-          <Text style={styles.removeText}>Remove from My Sets</Text>
+          <Text style={[styles.removeText, { color: theme.danger }]}>Remove from My Sets</Text>
         </Pressable>
       )}
     </ScrollView>
@@ -103,6 +103,5 @@ const styles = StyleSheet.create({
   helper: { fontSize: 13, marginTop: 2 },
   note: { fontSize: 13 },
   remove: { minHeight: 52, alignItems: 'center', justifyContent: 'center', marginTop: 12 },
-  // Destructive red; readable on both light and dark surfaces.
-  removeText: { color: '#E5484D', fontSize: 16, fontWeight: '600' },
+  removeText: { fontSize: 16, fontWeight: '600' },
 });

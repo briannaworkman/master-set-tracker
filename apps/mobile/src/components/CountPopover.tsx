@@ -8,13 +8,17 @@ export function Stepper({
   onChange,
   min = 0,
   max = 999,
+  label,
 }: {
   value: number;
   onChange(n: number): void;
   min?: number;
   max?: number;
+  /** Optional suffix for the button labels, e.g. "Reverse Holo" -> "Increase Reverse Holo". */
+  label?: string;
 }) {
   const theme = useTheme();
+  const suffix = label ? ` ${label}` : '';
   const change = (n: number) => {
     void Haptics.selectionAsync();
     onChange(n);
@@ -33,11 +37,11 @@ export function Stepper({
   );
   return (
     <View style={styles.stepper}>
-      {button('−', 'Decrease', value <= min, value - 1)}
+      {button('−', `Decrease${suffix}`, value <= min, value - 1)}
       <Text accessibilityLabel={`${value} owned`} style={[styles.value, { color: theme.text }]}>
         {value}
       </Text>
-      {button('+', 'Increase', value >= max, value + 1)}
+      {button('+', `Increase${suffix}`, value >= max, value + 1)}
     </View>
   );
 }

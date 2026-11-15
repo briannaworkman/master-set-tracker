@@ -7,6 +7,7 @@ export interface Theme {
   missing: string;
   accent: string;
   overlay: string;
+  danger: string;
 }
 
 export const light: Theme = {
@@ -18,6 +19,7 @@ export const light: Theme = {
   missing: '#9A9388',
   accent: '#1D1B18',
   overlay: 'rgba(29,27,24,0.35)',
+  danger: '#C2363C',
 };
 
 export const dark: Theme = {
@@ -29,4 +31,5 @@ export const dark: Theme = {
   missing: '#77716A',
   accent: '#F3F0EA',
   overlay: 'rgba(0,0,0,0.55)',
+  danger: '#FF6B6B',
 };

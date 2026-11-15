@@ -14,6 +14,7 @@ describe('theme tokens', () => {
       missing: '#9A9388',
       accent: '#1D1B18',
       overlay: 'rgba(29,27,24,0.35)',
+      danger: '#C2363C',
     });
     expect(dark).toEqual({
       bg: '#151412',
@@ -24,6 +25,7 @@ describe('theme tokens', () => {
       missing: '#77716A',
       accent: '#F3F0EA',
       overlay: 'rgba(0,0,0,0.55)',
+      danger: '#FF6B6B',
     });
   });
 });
