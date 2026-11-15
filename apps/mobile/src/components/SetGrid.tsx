@@ -1,0 +1,101 @@
+import type { CatalogCard, SetCategory, VersionKind } from '@mst/catalog-core';
+import { filterCards, type Counts, type Filter } from '@mst/collection-core';
+import { useMemo, type ReactElement } from 'react';
+import { SectionList, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useTheme } from '../theme/useTheme';
+import { CardTile } from './CardTile';
+
+export interface GridSection {
+  category: SetCategory;
+  cards: CatalogCard[];
+}
+
+interface RowSection {
+  category: SetCategory;
+  data: CatalogCard[][];
+}
+
+const GUTTER = 16;
+const GAP = 8;
+const PER_ROW = 3;
+
+export function SetGrid({
+  sections,
+  counts,
+  kindsById,
+  filter,
+  header,
+  emptyText,
+  onTapVersion,
+  onLongPressVersion,
+  onOpenCard,
+}: {
+  sections: GridSection[];
+  counts: Counts;
+  kindsById: Record<string, VersionKind>;
+  filter: Filter;
+  header?: ReactElement;
+  emptyText: string;
+  onTapVersion(cardId: string, kind: string): void;
+  onLongPressVersion(cardId: string, kind: string): void;
+  onOpenCard(cardId: string): void;
+}) {
+  const theme = useTheme();
+  const insets = useSafeAreaInsets();
+  const { width: screenWidth } = useWindowDimensions();
+  const tileWidth = (screenWidth - GUTTER * 2 - GAP * (PER_ROW - 1)) / PER_ROW;
+
+  const rowSections = useMemo<RowSection[]>(
+    () =>
+      sections
+        .map(({ category, cards }) => {
+          const shown = filterCards(cards, counts, filter);
+          const rows: CatalogCard[][] = [];
+          for (let i = 0; i < shown.length; i += PER_ROW) rows.push(shown.slice(i, i + PER_ROW));
+          return { category, data: rows };
+        })
+        .filter((s) => s.data.length > 0),
+    [sections, counts, filter],
+  );
+
+  return (
+    <SectionList
+      sections={rowSections}
+      keyExtractor={(row) => row[0]!.id}
+      ListHeaderComponent={header}
+      ListEmptyComponent={<Text style={[styles.empty, { color: theme.muted }]}>{emptyText}</Text>}
+      stickySectionHeadersEnabled={false}
+      contentContainerStyle={{ paddingHorizontal: GUTTER, paddingBottom: insets.bottom + 24 }}
+      renderSectionHeader={({ section }) =>
+        section.category.kind === 'main' ? null : (
+          <Text accessibilityRole="header" style={[styles.sectionTitle, { color: theme.muted }]}>
+            {section.category.label}
+          </Text>
+        )
+      }
+      renderItem={({ item: row }) => (
+        <View style={styles.row}>
+          {row.map((card) => (
+            <CardTile
+              key={card.id}
+              card={card}
+              kindsById={kindsById}
+              counts={counts}
+              width={tileWidth}
+              onTapVersion={(kind) => onTapVersion(card.id, kind)}
+              onLongPressVersion={(kind) => onLongPressVersion(card.id, kind)}
+              onOpenCard={() => onOpenCard(card.id)}
+            />
+          ))}
+        </View>
+      )}
+    />
+  );
+}
+
+const styles = StyleSheet.create({
+  row: { flexDirection: 'row', gap: GAP, marginBottom: GAP },
+  sectionTitle: { fontSize: 13, fontWeight: '600', marginTop: 12, marginBottom: 8 },
+  empty: { fontSize: 15, textAlign: 'center', paddingVertical: 32 },
+});
