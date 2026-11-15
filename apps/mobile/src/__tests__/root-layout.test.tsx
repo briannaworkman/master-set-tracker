@@ -10,8 +10,16 @@ jest.mock('expo-router', () => {
     mockScreens.push(props);
     return null;
   };
+  Stack.Protected = ({ guard, children }: { guard: boolean; children: ReactNode }) => (guard ? children : null);
   return { Stack };
 });
+
+let mockAuthStatus = 'signedIn';
+jest.mock('../auth/AuthProvider', () => ({
+  AuthProvider: ({ children }: { children: ReactNode }) => children,
+  useAuth: () => ({ status: mockAuthStatus, userId: null, email: null, provider: null }),
+}));
+jest.mock('../backend/supabase', () => ({ getSupabase: () => ({}) }));
 
 // The real provider renders nothing until native inset metrics arrive.
 jest.mock('react-native-safe-area-context', () => jest.requireActual('react-native-safe-area-context/jest/mock').default);
@@ -30,6 +38,7 @@ jest.mock('../db/openStore', () => {
 beforeEach(() => {
   mockScreens.length = 0;
   mockOpenError = null;
+  mockAuthStatus = 'signedIn';
 });
 
 it('titles the home screen "My Sets" so back buttons never read "index"', async () => {
@@ -48,4 +57,21 @@ it('shows a full-screen message instead of crashing when the collection database
   // __DEV__ is true under jest, so the underlying error is shown for debugging.
   expect(screen.getByText('database disk image is malformed')).toBeOnTheScreen();
   expect(mockScreens).toEqual([]);
+});
+
+it('registers only the sign-in routes while signed out', async () => {
+  mockAuthStatus = 'signedOut';
+  await render(<RootLayout />);
+  expect(mockScreens.map((s) => s.name)).toEqual(['sign-in', 'sign-in-email']);
+});
+
+it('renders no routes while the session is loading', async () => {
+  mockAuthStatus = 'loading';
+  await render(<RootLayout />);
+  expect(mockScreens).toEqual([]);
+});
+
+it('registers only the app routes while signed in', async () => {
+  await render(<RootLayout />);
+  expect(mockScreens.map((s) => s.name)).toEqual(['index', 'browse', 'set/[id]/card/[cardId]']);
 });
