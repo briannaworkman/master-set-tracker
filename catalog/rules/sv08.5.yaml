@@ -1,0 +1,164 @@
+# Prismatic Evolutions (English), TCGdex id sv08.5.
+# 180 numbered cards: 131 in the main numbering plus 49 secret rares (132-180).
+#
+# Versions (researched 2026-11-14):
+#   - Common / Uncommon Pokémon: Normal, Reverse Holo, Poké Ball, Master Ball.
+#   - Rare Pokémon: Holo, Reverse Holo, Poké Ball, Master Ball.
+#   - Common / Uncommon Trainers (093-131 except the ACE SPECs): Normal,
+#     Reverse Holo, Poké Ball. Trainers have NO Master Ball version.
+#   - Everything else (Double rare ex, ACE SPEC Rare, Ultra Rare,
+#     Special illustration rare, Hyper rare): one version only (single).
+#   Master set = 180 cards + 100 reverse + 100 Poké Ball + 67 Master Ball = 447.
+#   (67 = 33 common + 13 uncommon + 21 rare Pokémon; the 33 C/U Trainers make
+#   up the difference between 100 Poké Ball and 67 Master Ball.)
+#
+# Sources:
+#   - TCGdex API, https://api.tcgdex.net/v2/en/sets/sv08.5 and each card's
+#     `variants_detailed` (foil "pokeball" / "masterball"): exactly the pattern
+#     above, card by card.
+#   - TCGWatchtower master set page,
+#     https://tcgwatchtower.com/pokemon/sets/scarlet-violet/prismatic-evolutions/master-set:
+#     same per-type table, "Common, uncommon, and rare Trainers: Regular, Reverse
+#     Holo, Poké Ball Pattern" with no Master Ball; ACE SPEC / ex / secret rares
+#     one version; 447 total.
+#   - Pokecottage master set guide,
+#     https://pokecottage.com/prismatic-evolutions-master-set-guide:
+#     "131 standard set cards, 100 reverse holos, 100 Poké Ball pattern, 67 Master
+#     Ball pattern and 49 Secret Rares" (447).
+#   - PriceCharting product search (marketplace price guide): Exeggcute #1 and
+#     Exeggutor #2 have Reverse / Poke Ball / Master Ball; Amarys #93 has Reverse
+#     and Poke Ball but no Master Ball; Max Rod #116 and the ex cards have no
+#     ball or reverse versions.
+#
+# Extra cards (category "promos"): ex cards reprinted with a "Prismatic
+# Evolutions" set-logo stamp in this set's own collection boxes. Confirmed by
+# TCGdex (variants_detailed stamp "set-logo") plus a second source each:
+# PriceCharting "[Stamped]" products for 006, 014, 023, 026, 030, 034, 041, 060,
+# 075, 076, 082; for Lucario ex 051 and Tyranitar ex 064, the Lucario ex &
+# Tyranitar ex Premium Collection listing ("specially stamped foil promo cards")
+# on cardcodex.com and retailer listings titled "(Prismatic Evolutions Stamp)".
+# Lugia ex 082: Bulbapedia (via search snippets) reports two stamped printings
+# (stamp on the left, Lugia ex Special Collection, Europe; stamp on the right,
+# Lugia ex & Latias ex Premium Collection, Target US). PriceCharting lists only
+# one, so only one is tracked here; see catalog/README.md "Open questions".
+# Other stamps (Holiday Calendar snowflake, Pokémon Day, Prize Pack, league),
+# cosmos holos and jumbo cards are NOT included; see the README.
+id: sv08.5
+source:
+  tcgdex: sv08.5
+name: Prismatic Evolutions
+series: Scarlet & Violet
+releaseDate: "2025-01-17"
+categories:
+  - id: main
+    kind: main
+    label: Main set
+  - id: promos
+    kind: promo_stamped
+    label: Promos & stamped
+categoryRules: []
+versionRules:
+  # Common and Uncommon Trainers: no Master Ball version. Must come before the
+  # Common/Uncommon rule below (first match wins).
+  - match:
+      ids: [
+        sv08.5-093, sv08.5-094, sv08.5-095, sv08.5-096, sv08.5-097, sv08.5-098,
+        sv08.5-099, sv08.5-100, sv08.5-101, sv08.5-102, sv08.5-103, sv08.5-104,
+        sv08.5-105, sv08.5-106, sv08.5-107, sv08.5-108, sv08.5-109, sv08.5-110,
+        sv08.5-111, sv08.5-112, sv08.5-113, sv08.5-114, sv08.5-115, sv08.5-118,
+        sv08.5-120, sv08.5-121, sv08.5-122, sv08.5-123, sv08.5-124, sv08.5-125,
+        sv08.5-126, sv08.5-127, sv08.5-130,
+      ]
+    versions: [normal, reverse, pokeball]
+  - match:
+      rarity: [Common, Uncommon]
+    versions: [normal, reverse, pokeball, masterball]
+  - match:
+      rarity: [Rare]
+    versions: [holo, reverse, pokeball, masterball]
+  # Double rare, ACE SPEC Rare, Ultra Rare, Special illustration rare, Hyper rare.
+  - match: {}
+    versions: [single]
+overrides: {}
+extraCards:
+  - id: sv08.5-006-stamp
+    category: promos
+    number: "006"
+    name: Leafeon ex (Prismatic Evolutions stamp)
+    sourceCard: { tcgdex: sv08.5-006 }
+    versions: [single]
+  - id: sv08.5-014-stamp
+    category: promos
+    number: "014"
+    name: Flareon ex (Prismatic Evolutions stamp)
+    sourceCard: { tcgdex: sv08.5-014 }
+    versions: [single]
+  - id: sv08.5-023-stamp
+    category: promos
+    number: "023"
+    name: Vaporeon ex (Prismatic Evolutions stamp)
+    sourceCard: { tcgdex: sv08.5-023 }
+    versions: [single]
+  - id: sv08.5-026-stamp
+    category: promos
+    number: "026"
+    name: Glaceon ex (Prismatic Evolutions stamp)
+    sourceCard: { tcgdex: sv08.5-026 }
+    versions: [single]
+  - id: sv08.5-030-stamp
+    category: promos
+    number: "030"
+    name: Jolteon ex (Prismatic Evolutions stamp)
+    sourceCard: { tcgdex: sv08.5-030 }
+    versions: [single]
+  - id: sv08.5-034-stamp
+    category: promos
+    number: "034"
+    name: Espeon ex (Prismatic Evolutions stamp)
+    sourceCard: { tcgdex: sv08.5-034 }
+    versions: [single]
+  - id: sv08.5-041-stamp
+    category: promos
+    number: "041"
+    name: Sylveon ex (Prismatic Evolutions stamp)
+    sourceCard: { tcgdex: sv08.5-041 }
+    versions: [single]
+  # Lucario ex & Tyranitar ex Premium Collection.
+  - id: sv08.5-051-stamp
+    category: promos
+    number: "051"
+    name: Lucario ex (Prismatic Evolutions stamp)
+    sourceCard: { tcgdex: sv08.5-051 }
+    versions: [single]
+  - id: sv08.5-060-stamp
+    category: promos
+    number: "060"
+    name: Umbreon ex (Prismatic Evolutions stamp)
+    sourceCard: { tcgdex: sv08.5-060 }
+    versions: [single]
+  # Lucario ex & Tyranitar ex Premium Collection.
+  - id: sv08.5-064-stamp
+    category: promos
+    number: "064"
+    name: Tyranitar ex (Prismatic Evolutions stamp)
+    sourceCard: { tcgdex: sv08.5-064 }
+    versions: [single]
+  - id: sv08.5-075-stamp
+    category: promos
+    number: "075"
+    name: Eevee ex (Prismatic Evolutions stamp)
+    sourceCard: { tcgdex: sv08.5-075 }
+    versions: [single]
+  # Snorlax ex & Blissey ex Special Collection.
+  - id: sv08.5-076-stamp
+    category: promos
+    number: "076"
+    name: Snorlax ex (Prismatic Evolutions stamp)
+    sourceCard: { tcgdex: sv08.5-076 }
+    versions: [single]
+  - id: sv08.5-082-stamp
+    category: promos
+    number: "082"
+    name: Lugia ex (Prismatic Evolutions stamp)
+    sourceCard: { tcgdex: sv08.5-082 }
+    versions: [single]

@@ -1,0 +1,92 @@
+# Scarlet & Violet 151 (English), TCGdex id sv03.5.
+# 207 numbered cards: 165 in the main numbering plus 42 secret rares (166-207).
+#
+# Versions (researched 2026-11-14):
+#   - Common and Uncommon (Pokémon and Trainers): Normal + Reverse Holo.
+#   - Rare (non-ex Pokémon): Holo + Reverse Holo.
+#   - Everything else (Double rare ex, Illustration rare, Ultra Rare,
+#     Special illustration rare, Hyper rare): one version only (single).
+#   Master set = 207 cards + 153 reverse holos = 360 versions.
+#
+# The English 151 set has NO Poké Ball or Master Ball reverse holos. Those
+# patterns were printed only in the Japanese (sv2a "Pokémon Card 151") and
+# Korean/Chinese releases. This contradicts the plan's starting assumption.
+#
+# Sources:
+#   - TCGdex API, https://api.tcgdex.net/v2/en/sets/sv03.5 and each card's
+#     `variants` / `variants_detailed`: C/U normal+reverse, R holo+reverse,
+#     everything else holo only; no pokeball/masterball foils listed.
+#   - TCGWatchtower master set page,
+#     https://tcgwatchtower.com/pokemon/sets/scarlet-violet/151/master-set:
+#     360 = 207 + 153 reverse holos; Double Rare ex and secret rares one version.
+#   - Pokecottage 151 master set guide, https://pokecottage.com/151-master-set-guide:
+#     "165 standard set cards, 153 reverse holos and 42 Secret Rares".
+#   - Binderforge 151 guide, https://www.binderforge.com/?p=281: same 360 / 153.
+#   - PriceCharting, https://www.pricecharting.com/console/pokemon-scarlet-&-violet-151
+#     and product search: English cards show only [Reverse Holo]; [Poke Ball] /
+#     [Master Ball] products exist only under the Japanese and Korean 151 sets.
+#
+# Extra cards (category "promos"): the four retailer stamped versions of the
+# Kanto starters that launched with this set. Each is confirmed by TCGdex
+# (variants_detailed stamp), PriceCharting ([Stamped] / [GameStop] / [EB Games] /
+# [Pokemon Center]) and Bulbapedia's 151 set list (seen via search snippets;
+# Bulbapedia blocks automated page fetches). They are tracked as one version
+# each. Sources disagree on their finish (TCGdex says normal for Bulbasaur and
+# the GameStop Charmander, Bulbapedia says reverse holo); it does not change the
+# checklist because each card has a single version. Other promos and product
+# variants (cosmos holos, Holiday Calendar, Pokémon Together, Prize Pack, league,
+# jumbo, metal) are NOT included; see catalog/README.md "Open questions".
+id: sv03.5
+source:
+  tcgdex: sv03.5
+name: "151"
+series: Scarlet & Violet
+releaseDate: "2023-09-22"
+categories:
+  - id: main
+    kind: main
+    label: Main set
+  - id: promos
+    kind: promo_stamped
+    label: Promos & stamped
+categoryRules: []
+versionRules:
+  - match:
+      rarity: [Common, Uncommon]
+    versions: [normal, reverse]
+  - match:
+      rarity: [Rare]
+    versions: [holo, reverse]
+  # Double rare, Illustration rare, Ultra Rare, Special illustration rare, Hyper rare.
+  - match: {}
+    versions: [single]
+overrides: {}
+extraCards:
+  # Best Buy gift with purchase (USA), "Scarlet & Violet—151" stamp.
+  - id: sv03.5-001-stamp-151
+    category: promos
+    number: "001"
+    name: Bulbasaur (151 stamp, Best Buy)
+    sourceCard: { tcgdex: sv03.5-001 }
+    versions: [single]
+  # GameStop gift with purchase (USA and Canada).
+  - id: sv03.5-004-stamp-gamestop
+    category: promos
+    number: "004"
+    name: Charmander (GameStop stamp)
+    sourceCard: { tcgdex: sv03.5-004 }
+    versions: [single]
+  # EB Games gift with purchase (Australia and New Zealand).
+  - id: sv03.5-004-stamp-ebgames
+    category: promos
+    number: "004"
+    name: Charmander (EB Games stamp)
+    sourceCard: { tcgdex: sv03.5-004 }
+    versions: [single]
+  # Pokémon Center preorder promo.
+  - id: sv03.5-007-stamp-pokemon-center
+    category: promos
+    number: "007"
+    name: Squirtle (Pokémon Center stamp)
+    sourceCard: { tcgdex: sv03.5-007 }
+    versions: [single]
