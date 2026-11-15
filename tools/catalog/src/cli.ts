@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { CatalogIndex, SetCatalog } from '@mst/catalog-core';
 import { buildSet } from './build/build-set.js';
+import { diffReviewedCards } from './build/compare.js';
 import { parseLock, type PositionLock } from './build/positions.js';
 import { toChecklistCsv } from './checklist/csv.js';
 import { writeFileAtomic } from './fs/atomic.js';
@@ -119,6 +120,24 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<number> {
 
         const result = await buildSet({ rules, source, lock });
         for (const w of result.warnings) log(`warning (${id}): ${w}`);
+
+        // Publish freezes positions forever, so it must freeze exactly what the owner reviewed.
+        if (command === 'publish') {
+          const rerun = `re-run build ${id}, re-review the checklist, then publish`;
+          if (result.warnings.length > 0) throw new Error(`refusing to publish ${id} with build warnings; fix them, ${rerun}`);
+          if (!existsSync(setPath(id))) {
+            throw new Error(`catalog/dist/sets/${id}.json is missing; run build ${id} and have the checklist reviewed first`);
+          }
+          const reviewed = JSON.parse(await readFile(setPath(id), 'utf8')) as SetCatalog;
+          const diffs = diffReviewedCards(reviewed, result.catalog);
+          if (diffs.length > 0) {
+            throw new Error(
+              `refusing to publish: the fresh build differs from the reviewed catalog/dist/sets/${id}.json:\n` +
+                diffs.map((d) => `  ${d}`).join('\n') +
+                `\n${rerun}`,
+            );
+          }
+        }
 
         if (lock && result.changed && !acceptChanges) {
           log(

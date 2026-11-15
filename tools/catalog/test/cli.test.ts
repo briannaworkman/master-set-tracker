@@ -61,6 +61,12 @@ const exists = (rel: string) => existsSync(p(rel));
 const read = (rel: string) => readFileSync(p(rel), 'utf8');
 const json = (rel: string) => JSON.parse(read(rel));
 
+/** Publishing requires a reviewed build on disk first. */
+async function publish(): Promise<number> {
+  expect(await runCli(['build', 'sv03.5'], deps)).toBe(0);
+  return runCli(['publish', 'sv03.5'], deps);
+}
+
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'mst-cli-'));
   mkdirSync(p('catalog/rules'), { recursive: true });
@@ -82,19 +88,46 @@ describe('runCli', () => {
   });
 
   it('publish writes the lock and lists the set in the index', async () => {
-    expect(await runCli(['publish', 'sv03.5'], deps)).toBe(0);
+    expect(await publish()).toBe(0);
     expect(json('catalog/locks/sv03.5.lock.json').catalogVersion).toBe(1);
     expect(json('catalog/dist/index.json').sets.map((s: { id: string }) => s.id)).toEqual(['sv03.5']);
     expect(json('catalog/dist/index.json').kinds).toHaveLength(6);
   });
 
+  it('refuses to publish when there is no reviewed build on disk', async () => {
+    expect(await runCli(['publish', 'sv03.5'], deps)).toBe(1);
+    expect(logs.join('\n')).toMatch(/catalog\/dist\/sets\/sv03\.5\.json is missing.*build sv03\.5/s);
+    expect(exists('catalog/locks/sv03.5.lock.json')).toBe(false);
+  });
+
+  it('refuses to publish when the fresh build differs from the reviewed dist, naming the cards', async () => {
+    expect(await runCli(['build', 'sv03.5'], deps)).toBe(0);
+    source.addCard('sv03.5-004');
+    logs = [];
+    expect(await runCli(['publish', 'sv03.5'], deps)).toBe(1);
+    const out = logs.join('\n');
+    expect(out).toMatch(/added: sv03\.5-004/);
+    expect(out).toMatch(/re-run build sv03\.5.*re-review/s);
+    expect(exists('catalog/locks/sv03.5.lock.json')).toBe(false);
+    expect(json('catalog/dist/index.json').sets).toEqual([]);
+  });
+
+  it('refuses to publish when the build has warnings', async () => {
+    source.setTotal(5);
+    expect(await runCli(['build', 'sv03.5'], deps)).toBe(0);
+    logs = [];
+    expect(await runCli(['publish', 'sv03.5'], deps)).toBe(1);
+    expect(logs.join('\n')).toMatch(/refusing to publish sv03\.5.*warning/is);
+    expect(exists('catalog/locks/sv03.5.lock.json')).toBe(false);
+  });
+
   it('refuses to publish an already published set', async () => {
-    await runCli(['publish', 'sv03.5'], deps);
+    expect(await publish()).toBe(0);
     expect(await runCli(['publish', 'sv03.5'], deps)).toBe(1);
   });
 
   it('refuses to change a published set without --accept-changes', async () => {
-    await runCli(['publish', 'sv03.5'], deps);
+    expect(await publish()).toBe(0);
     const setBefore = read('catalog/dist/sets/sv03.5.json');
     const csvBefore = read('catalog/dist/checklists/sv03.5.csv');
     source.addCard('sv03.5-004');
@@ -106,7 +139,7 @@ describe('runCli', () => {
   });
 
   it('accepts changes when asked and bumps the catalog version', async () => {
-    await runCli(['publish', 'sv03.5'], deps);
+    expect(await publish()).toBe(0);
     source.addCard('sv03.5-004');
     expect(await runCli(['build', 'sv03.5', '--accept-changes'], deps)).toBe(0);
     expect(json('catalog/locks/sv03.5.lock.json').catalogVersion).toBe(2);
@@ -119,7 +152,7 @@ describe('runCli', () => {
   });
 
   it('sets versionCount to the highest position ever used + 1, not the live version count', async () => {
-    await runCli(['publish', 'sv03.5'], deps);
+    expect(await publish()).toBe(0);
     source.removeCard('sv03.5-003'); // holds the highest position
     logs = [];
     expect(await runCli(['build', 'sv03.5', '--accept-changes'], deps)).toBe(0);
@@ -134,7 +167,7 @@ describe('runCli', () => {
   });
 
   it('writes nothing when a later set in a multi-set build fails', async () => {
-    await runCli(['publish', 'sv03.5'], deps);
+    expect(await publish()).toBe(0);
     writeFileSync(p('catalog/rules/zz.yaml'), read('catalog/rules/sv03.5.yaml').replace('id: sv03.5', 'id: zz').replace('tcgdex: sv03.5', 'tcgdex: zz'));
     const files = ['catalog/dist/sets/sv03.5.json', 'catalog/dist/checklists/sv03.5.csv', 'catalog/locks/sv03.5.lock.json', 'catalog/dist/index.json'];
     const before = files.map(read);
@@ -163,7 +196,7 @@ describe('runCli', () => {
   });
 
   it('rejects a lock whose setId differs', async () => {
-    await runCli(['publish', 'sv03.5'], deps);
+    expect(await publish()).toBe(0);
     const lock = json('catalog/locks/sv03.5.lock.json');
     writeFileSync(p('catalog/locks/sv03.5.lock.json'), JSON.stringify({ ...lock, setId: 'other' }));
     expect(await runCli(['build', 'sv03.5'], deps)).toBe(1);
@@ -171,7 +204,7 @@ describe('runCli', () => {
   });
 
   it('rejects a malformed lock, naming its path', async () => {
-    await runCli(['publish', 'sv03.5'], deps);
+    expect(await publish()).toBe(0);
     const lock = json('catalog/locks/sv03.5.lock.json');
     const [first, second] = Object.keys(lock.positions) as [string, string];
     lock.positions[second] = lock.positions[first];
@@ -181,7 +214,7 @@ describe('runCli', () => {
   });
 
   it('rejects a lock that is not valid JSON, naming its path', async () => {
-    await runCli(['publish', 'sv03.5'], deps);
+    expect(await publish()).toBe(0);
     writeFileSync(p('catalog/locks/sv03.5.lock.json'), '{ nope');
     expect(await runCli(['build', 'sv03.5'], deps)).toBe(1);
     expect(logs.join('\n')).toMatch(/sv03\.5\.lock\.json/);
@@ -190,7 +223,7 @@ describe('runCli', () => {
   it.each([['build'], ['publish']])(
     '%s refuses when a set listed in the committed index has no lock file',
     async (command) => {
-      await runCli(['publish', 'sv03.5'], deps);
+      expect(await publish()).toBe(0);
       rmSync(p('catalog/locks/sv03.5.lock.json'));
       const indexBefore = read('catalog/dist/index.json');
       logs = [];
@@ -208,7 +241,7 @@ describe('runCli', () => {
   });
 
   it('exits 1 when a locked set has no dist JSON for the index', async () => {
-    await runCli(['publish', 'sv03.5'], deps);
+    expect(await publish()).toBe(0);
     // second set with a lock but never built
     cpSync(p('catalog/rules/sv03.5.yaml'), p('catalog/rules/zz.yaml'));
     writeFileSync(p('catalog/locks/zz.lock.json'), JSON.stringify({ setId: 'zz', catalogVersion: 1, positions: {}, retired: [] }));
