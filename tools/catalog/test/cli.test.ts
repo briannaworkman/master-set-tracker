@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -186,6 +186,20 @@ describe('runCli', () => {
     expect(await runCli(['build', 'sv03.5'], deps)).toBe(1);
     expect(logs.join('\n')).toMatch(/sv03\.5\.lock\.json/);
   });
+
+  it.each([['build'], ['publish']])(
+    '%s refuses when a set listed in the committed index has no lock file',
+    async (command) => {
+      await runCli(['publish', 'sv03.5'], deps);
+      rmSync(p('catalog/locks/sv03.5.lock.json'));
+      const indexBefore = read('catalog/dist/index.json');
+      logs = [];
+      expect(await runCli([command!, 'sv03.5'], deps)).toBe(1);
+      expect(logs.join('\n')).toMatch(/sv03\.5.*index\.json.*sv03\.5\.lock\.json.*missing/);
+      expect(read('catalog/dist/index.json')).toBe(indexBefore);
+      expect(exists('catalog/locks/sv03.5.lock.json')).toBe(false);
+    },
+  );
 
   it('warns when fetched card count differs from the source total', async () => {
     source.setTotal(5);

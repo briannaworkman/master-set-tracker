@@ -93,6 +93,22 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<number> {
     const planned: Planned[] = [];
     let failed = false;
 
+    // A set already in the index is published; without its lock its positions would be
+    // reassigned from scratch (and the index rewrite would silently drop it).
+    const indexPath = join(catalogDir, 'dist', 'index.json');
+    if (existsSync(indexPath)) {
+      const committed = JSON.parse(await readFile(indexPath, 'utf8')) as CatalogIndex;
+      for (const { id } of committed.sets) {
+        if (!existsSync(lockPath(id))) {
+          log(
+            `set "${id}" is listed in catalog/dist/index.json but its lock catalog/locks/${id}.lock.json is missing; ` +
+              'restore it from git (locks must never be deleted)',
+          );
+          failed = true;
+        }
+      }
+    }
+
     // Phase 1: build everything in memory and run every check. Nothing is written here.
     for (const id of ids) {
       try {
@@ -163,7 +179,7 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<number> {
       log(p.summary);
     }
     const index: CatalogIndex = { generatedAt: new Date().toISOString(), kinds, sets: indexSets };
-    await writeFileAtomic(join(catalogDir, 'dist', 'index.json'), json(index));
+    await writeFileAtomic(indexPath, json(index));
     return 0;
   } catch (err) {
     log(err instanceof Error ? err.message : String(err));
