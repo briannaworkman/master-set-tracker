@@ -77,8 +77,17 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<number> {
     }
 
     const kinds = parseVersionKinds(await readFile(join(catalogDir, 'version-kinds.yaml'), 'utf8'));
+    interface Planned {
+      id: string;
+      catalog: SetCatalog;
+      csv: string;
+      lock: PositionLock | null;
+      summary: string;
+    }
+    const planned: Planned[] = [];
     let failed = false;
 
+    // Phase 1: build everything in memory and run every check. Nothing is written here.
     for (const id of ids) {
       try {
         const rules = parseSetRules(await readFile(rulesPath(id), 'utf8'), kinds);
@@ -99,38 +108,54 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<number> {
           continue;
         }
 
-        await writeFileAtomic(setPath(id), json(result.catalog));
-        await writeFileAtomic(csvPath(id), toChecklistCsv(result.catalog, kinds));
-        if (command === 'publish' || (lock && result.changed)) {
-          await writeFileAtomic(lockPath(id), json(result.lock));
-        }
-
         const perCategory = result.catalog.categories
           .map((c) => `${c.label} ${result.catalog.cards.filter((card) => card.categoryId === c.id).length}`)
           .join(', ');
-        log(
-          `${result.catalog.name}: ${result.catalog.cards.length} cards, ` +
+        planned.push({
+          id,
+          catalog: result.catalog,
+          csv: toChecklistCsv(result.catalog, kinds),
+          lock: command === 'publish' || (lock && result.changed) ? result.lock : null,
+          summary:
+            `${result.catalog.name}: ${result.catalog.cards.length} cards, ` +
             `${result.catalog.versionCount} versions (${perCategory})`,
-        );
+        });
       } catch (err) {
         log(`${id}: ${err instanceof Error ? err.message : String(err)}`);
         failed = true;
       }
     }
-    if (failed) return 1;
 
-    const sets: CatalogIndex['sets'] = [];
-    for (const id of await listIds(join(catalogDir, 'locks'), '.lock.json')) {
-      if (!existsSync(setPath(id))) {
-        throw new Error(`set "${id}" is published but ${setPath(id)} is missing; run build ${id}`);
+    // Index preconditions: every published set (existing or about to be) needs a dist JSON.
+    const plannedById = new Map(planned.map((p) => [p.id, p]));
+    const publishedIds = new Set(await listIds(join(catalogDir, 'locks'), '.lock.json'));
+    for (const p of planned) if (p.lock) publishedIds.add(p.id);
+    const indexSets: CatalogIndex['sets'] = [];
+    for (const id of [...publishedIds].sort()) {
+      let c = plannedById.get(id)?.catalog;
+      if (!c) {
+        if (!existsSync(setPath(id))) {
+          log(`set "${id}" is published but ${setPath(id)} is missing; run build ${id}`);
+          failed = true;
+          continue;
+        }
+        c = JSON.parse(await readFile(setPath(id), 'utf8')) as SetCatalog;
       }
-      const c = JSON.parse(await readFile(setPath(id), 'utf8')) as SetCatalog;
-      sets.push({
+      indexSets.push({
         id: c.id, name: c.name, series: c.series, releaseDate: c.releaseDate,
         logoUrl: c.logoUrl, catalogVersion: c.catalogVersion, versionCount: c.versionCount,
       });
     }
-    const index: CatalogIndex = { generatedAt: new Date().toISOString(), kinds, sets };
+    if (failed) return 1;
+
+    // Phase 2: write. The lock is the authority, so it goes first; the index goes last.
+    for (const p of planned) {
+      if (p.lock) await writeFileAtomic(lockPath(p.id), json(p.lock));
+      await writeFileAtomic(setPath(p.id), json(p.catalog));
+      await writeFileAtomic(csvPath(p.id), p.csv);
+      log(p.summary);
+    }
+    const index: CatalogIndex = { generatedAt: new Date().toISOString(), kinds, sets: indexSets };
     await writeFileAtomic(join(catalogDir, 'dist', 'index.json'), json(index));
     return 0;
   } catch (err) {

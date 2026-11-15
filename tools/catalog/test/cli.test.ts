@@ -20,7 +20,7 @@ function fakeSource() {
   let totalCards = 3;
   const source: CardSource & { addCard(id: string): void; failOn(id: string): void; setTotal(n: number): void } = {
     async getSet(id): Promise<SourceSet> {
-      if (id !== 'sv03.5') throw new Error(`unknown set ${id}`);
+      if (id !== 'sv03.5') throw new Error(`source failure for set ${id}`);
       return {
         id, name: '151', releaseDate: '2023-09-22', series: 'Scarlet & Violet',
         logoUrl: 'https://logo', totalCards, cardIds: [...cards.keys()],
@@ -86,10 +86,14 @@ describe('runCli', () => {
 
   it('refuses to change a published set without --accept-changes', async () => {
     await runCli(['publish', 'sv03.5'], deps);
+    const setBefore = read('catalog/dist/sets/sv03.5.json');
+    const csvBefore = read('catalog/dist/checklists/sv03.5.csv');
     source.addCard('sv03.5-004');
     expect(await runCli(['build', 'sv03.5'], deps)).toBe(1);
     expect(logs.join('\n')).toMatch(/sv03\.5-004:normal/);
     expect(json('catalog/locks/sv03.5.lock.json').catalogVersion).toBe(1);
+    expect(read('catalog/dist/sets/sv03.5.json')).toBe(setBefore);
+    expect(read('catalog/dist/checklists/sv03.5.csv')).toBe(csvBefore);
   });
 
   it('accepts changes when asked and bumps the catalog version', async () => {
@@ -97,6 +101,23 @@ describe('runCli', () => {
     source.addCard('sv03.5-004');
     expect(await runCli(['build', 'sv03.5', '--accept-changes'], deps)).toBe(0);
     expect(json('catalog/locks/sv03.5.lock.json').catalogVersion).toBe(2);
+    const dist = json('catalog/dist/sets/sv03.5.json');
+    expect(dist.catalogVersion).toBe(2);
+    const newCard = dist.cards.find((c: { id: string }) => c.id === 'sv03.5-004');
+    const others = dist.cards.filter((c: { id: string }) => c.id !== 'sv03.5-004');
+    const prevMax = Math.max(...others.flatMap((c: { versions: { position: number }[] }) => c.versions.map((v) => v.position)));
+    expect(newCard.versions.map((v: { position: number }) => v.position)).toEqual([1, 2, 3, 4].map((n) => prevMax + n));
+  });
+
+  it('writes nothing when a later set in a multi-set build fails', async () => {
+    await runCli(['publish', 'sv03.5'], deps);
+    writeFileSync(p('catalog/rules/zz.yaml'), read('catalog/rules/sv03.5.yaml').replace('id: sv03.5', 'id: zz').replace('tcgdex: sv03.5', 'tcgdex: zz'));
+    const files = ['catalog/dist/sets/sv03.5.json', 'catalog/dist/checklists/sv03.5.csv', 'catalog/locks/sv03.5.lock.json', 'catalog/dist/index.json'];
+    const before = files.map(read);
+    source.addCard('sv03.5-004');
+    expect(await runCli(['build', '--all', '--accept-changes'], deps)).toBe(1);
+    expect(files.map(read)).toEqual(before);
+    expect(exists('catalog/dist/sets/zz.json')).toBe(false);
   });
 
   it('leaves previous dist files intact when the source fails mid-build', async () => {
