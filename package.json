@@ -7,7 +7,7 @@
   },
   "scripts": {
     "test": "pnpm -r test",
-    "typecheck": "tsc --noEmit -p tools/catalog && tsc --noEmit -p packages/collection-core && pnpm --filter mobile typecheck",
+    "typecheck": "tsc --noEmit -p tools/catalog && tsc --noEmit -p packages/collection-core && tsc --noEmit -p packages/supabase-tests && pnpm --filter mobile typecheck",
     "catalog": "pnpm --filter @mst/catalog-tool exec tsx src/cli.ts"
   },
   "devDependencies": {
