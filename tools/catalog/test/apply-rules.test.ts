@@ -108,6 +108,30 @@ describe('applyRules', () => {
         {},
       ),
     ).toThrow(/extra card "x".*"zzz"/));
+  describe('card id uniqueness', () => {
+    it('fails when an extra card reuses a source card id, even with different versions', () =>
+      expect(() =>
+        applyRules(
+          withExtra({ id: 'sv03.5-001', category: 'promos', number: '001', name: 'Dup', versions: ['single'] }),
+          [card('001', 'Common')],
+          {},
+        ),
+      ).toThrow('duplicate card id "sv03.5-001"'));
+    it('fails when two extra cards share an id, even with different versions', () =>
+      expect(() =>
+        applyRules(
+          {
+            ...rules,
+            extraCards: [
+              { id: 'sv03.5-x', category: 'promos', number: 'X', name: 'X', versions: ['single'] },
+              { id: 'sv03.5-x', category: 'promos', number: 'X', name: 'X', versions: ['holo'] },
+            ],
+          },
+          [card('001', 'Common')],
+          {},
+        ),
+      ).toThrow('duplicate card id "sv03.5-x"'));
+  });
   describe('matcher validation', () => {
     const cards = [card('001', 'Common'), card('003', 'Double rare')];
     const withVersionRules = (versionRules: SetRules['versionRules']): SetRules => ({ ...rules, versionRules });

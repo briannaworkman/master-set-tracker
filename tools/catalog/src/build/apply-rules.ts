@@ -42,6 +42,13 @@ export function applyRules(
   const categoryIds = new Set(rules.categories.map((c) => c.id));
   const cardIds = new Set(cards.map((c) => c.id));
 
+  // Card ids key frozen positions, so two cards sharing one would collide once published.
+  const seenIds = new Set<string>();
+  for (const id of [...cards.map((c) => c.id), ...rules.extraCards.map((e) => e.id)]) {
+    if (seenIds.has(id)) throw new Error(`duplicate card id "${id}"`);
+    seenIds.add(id);
+  }
+
   for (const [id, o] of Object.entries(rules.overrides)) {
     if (!cardIds.has(id)) throw new Error(`override for unknown card "${id}"`);
     if (o.category !== undefined && !categoryIds.has(o.category)) {
