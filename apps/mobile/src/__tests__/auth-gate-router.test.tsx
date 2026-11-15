@@ -5,7 +5,7 @@ import type { ReactNode } from 'react';
 let mockAuthStatus = 'signedOut';
 jest.mock('../auth/AuthProvider', () => ({
   AuthProvider: ({ children }: { children: ReactNode }) => children,
-  useAuth: () => ({ status: mockAuthStatus, userId: null, email: null, provider: null }),
+  useAuth: () => ({ status: mockAuthStatus, userId: mockAuthStatus === 'signedIn' ? 'user-1' : null, email: null, provider: null }),
 }));
 jest.mock('../backend/supabase', () => ({ getSupabase: () => ({ auth: {} }) }));
 jest.mock('../backend/config', () => ({
@@ -21,7 +21,7 @@ jest.mock('../db/openStore', () => {
   return { getAppStore: () => opened };
 });
 
-const protectedPaths = ['/', '/browse', '/set/fx', '/set/fx/settings', '/set/fx/card/c-001'];
+const protectedPaths = ['/', '/browse', '/account', '/set/fx', '/set/fx/settings', '/set/fx/card/c-001'];
 
 beforeEach(() => {
   mockAuthStatus = 'signedOut';

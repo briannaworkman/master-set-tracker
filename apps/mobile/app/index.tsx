@@ -44,6 +44,31 @@ function AddSetButton() {
   );
 }
 
+/** A simple person glyph (head and shoulders), drawn so it needs no icon font. */
+function PersonGlyph({ color }: { color: string }) {
+  return (
+    <View style={styles.glyph}>
+      <View style={[styles.glyphHead, { borderColor: color }]} />
+      <View style={[styles.glyphBody, { borderColor: color }]} />
+    </View>
+  );
+}
+
+function AccountButton() {
+  const theme = useTheme();
+  const router = useRouter();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="Account"
+      onPress={() => router.push('/account')}
+      style={[styles.accountButton, { borderColor: theme.border, backgroundColor: theme.surface }]}
+    >
+      <PersonGlyph color={theme.text} />
+    </Pressable>
+  );
+}
+
 export default function HomeScreen() {
   const theme = useTheme();
   const tracked = useTracked();
@@ -59,7 +84,10 @@ export default function HomeScreen() {
           </Text>
           <SyncStatusLine />
         </View>
-        {hasVisible ? <AddSetButton /> : null}
+        <View style={styles.headerActions}>
+          {hasVisible ? <AddSetButton /> : null}
+          <AccountButton />
+        </View>
       </View>
       {hasVisible ? (
         <FlatList data={tracked} keyExtractor={(t) => t.setId} renderItem={({ item }) => <TrackedRow tracked={item} />} />
@@ -82,4 +110,23 @@ const styles = StyleSheet.create({
   emptyText: { fontSize: 17 },
   addButton: { paddingHorizontal: 16, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
   addText: { fontSize: 15, fontWeight: '600' },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  accountButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  glyph: { width: 20, height: 20, alignItems: 'center', justifyContent: 'flex-end' },
+  glyphHead: { width: 9, height: 9, borderRadius: 4.5, borderWidth: 1.75, marginBottom: 1.5 },
+  glyphBody: {
+    width: 16,
+    height: 8,
+    borderTopLeftRadius: 8,
+    borderTopRightRadius: 8,
+    borderWidth: 1.75,
+    borderBottomWidth: 0,
+  },
 });

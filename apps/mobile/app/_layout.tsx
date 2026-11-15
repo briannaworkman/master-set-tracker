@@ -1,19 +1,20 @@
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { bundledCatalog } from '../src/catalog/bundled';
 import { CatalogProvider, createCatalog } from '../src/catalog/CatalogContext';
-import { AuthProvider, useAuth } from '../src/auth/AuthProvider';
+import { endAuthSession } from '../src/account/flows';
+import { AuthProvider } from '../src/auth/AuthProvider';
 import { getSupabase } from '../src/backend/supabase';
 import { createSupabaseRemote, fetchSetPrices } from '../src/backend/supabase-remote';
 import { PersistenceContext } from '../src/components/WebPreviewNote';
 import { getAppStore, type OpenedStore } from '../src/db/openStore';
 import { StoreProvider } from '../src/db/StoreContext';
-import { RefreshingPriceProvider } from '../src/prices/PriceContext';
-import { SyncSessionProvider } from '../src/sync/SyncProvider';
+import { SessionPriceProvider } from '../src/prices/PriceContext';
+import { SyncSessionProvider, useSessionGate } from '../src/sync/SyncProvider';
 import { useTheme, type Theme } from '../src/theme/useTheme';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -50,24 +51,39 @@ function StoreError({ error, theme }: { error: unknown; theme: Theme }) {
 
 const fetchPrices = (setId: string) => fetchSetPrices(getSupabase(), setId);
 
-/** Cached prices for the tracked sets, refreshed while signed in (card_prices needs a session). */
-function AppPrices({ cache, children }: { cache: OpenedStore['priceCache']; children: ReactNode }) {
-  const { status, userId } = useAuth();
+/** The signed-in user's local data couldn't be checked or cleared, so it isn't shown. */
+function SessionError({ theme }: { theme: Theme }) {
   return (
-    <RefreshingPriceProvider cache={cache} fetchPrices={fetchPrices} enabled={status === 'signedIn' && userId !== null}>
-      {children}
-    </RefreshingPriceProvider>
+    <View style={[styles.error, { backgroundColor: theme.bg }]}>
+      <StatusBar style="auto" />
+      <Text accessibilityRole="header" style={[styles.errorTitle, { color: theme.text }]}>
+        Couldn't open your collection
+      </Text>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Sign out"
+        onPress={() => void endAuthSession(getSupabase(), 'local')}
+        style={[styles.errorButton, { borderColor: theme.border, backgroundColor: theme.surface }]}
+      >
+        <Text style={[styles.errorButtonText, { color: theme.text }]}>Sign out</Text>
+      </Pressable>
+    </View>
   );
 }
 
-/** Signed out: only the sign-in routes exist, so deep links to app routes land on sign-in. */
+/**
+ * Signed out: only the sign-in routes exist, so deep links to app routes land on sign-in. Signed
+ * in: the app routes exist only once the local data has been checked for this user (another
+ * account's data is wiped first), so nobody ever sees someone else's marks.
+ */
 function AuthGate({ theme }: { theme: Theme }) {
-  const { status } = useAuth();
+  const gate = useSessionGate();
   useEffect(() => {
-    if (status !== 'loading') SplashScreen.hideAsync().catch(() => {});
-  }, [status]);
-  if (status === 'loading') return <View style={[styles.splash, { backgroundColor: theme.bg }]} />;
-  const signedIn = status === 'signedIn';
+    if (gate !== 'loading') SplashScreen.hideAsync().catch(() => {});
+  }, [gate]);
+  if (gate === 'loading') return <View style={[styles.splash, { backgroundColor: theme.bg }]} />;
+  if (gate === 'failed') return <SessionError theme={theme} />;
+  const signedIn = gate === 'signedIn';
   return (
     <Stack
       screenOptions={{
@@ -81,6 +97,7 @@ function AuthGate({ theme }: { theme: Theme }) {
         {/* The title is never shown here, but iOS uses it as the back-button label. */}
         <Stack.Screen name="index" options={{ title: 'My Sets', headerShown: false }} />
         <Stack.Screen name="browse" options={{ title: 'Add a set' }} />
+        <Stack.Screen name="account" options={{ title: 'Account' }} />
         {/* Every app route must be declared here: undeclared routes are not guarded. */}
         <Stack.Screen name="set/[id]/index" />
         <Stack.Screen name="set/[id]/settings" />
@@ -105,13 +122,13 @@ export default function RootLayout() {
       <AuthProvider client={getSupabase()}>
         <CatalogProvider catalog={catalog}>
           <StoreProvider store={store}>
-            <SyncSessionProvider repo={repo} remote={remote}>
-              <AppPrices cache={priceCache}>
+            <SyncSessionProvider repo={repo} remote={remote} priceCache={priceCache}>
+              <SessionPriceProvider cache={priceCache} fetchPrices={fetchPrices}>
                 <PersistenceContext.Provider value={persistent}>
                   <StatusBar style="auto" />
                   <AuthGate theme={theme} />
                 </PersistenceContext.Provider>
-              </AppPrices>
+              </SessionPriceProvider>
             </SyncSessionProvider>
           </StoreProvider>
         </CatalogProvider>
@@ -125,4 +142,13 @@ const styles = StyleSheet.create({
   error: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 12 },
   errorTitle: { fontSize: 20, fontWeight: '700', textAlign: 'center' },
   errorDetail: { fontSize: 13, textAlign: 'center' },
+  errorButton: {
+    minHeight: 44,
+    paddingHorizontal: 24,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  errorButtonText: { fontSize: 16, fontWeight: '600' },
 });

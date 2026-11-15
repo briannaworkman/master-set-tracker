@@ -1,6 +1,6 @@
 import type { SyncStatus } from '@mst/collection-core';
-import { useEffect, useState } from 'react';
-import { StyleSheet, Text } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { AccessibilityInfo, StyleSheet, Text } from 'react-native';
 import { formatSyncedAgo } from '../sync/relativeTime';
 import { useHasSync, usePendingCount, useSyncStatus } from '../sync/SyncProvider';
 import { useTheme } from '../theme/useTheme';
@@ -32,9 +32,21 @@ function StatusText() {
     return () => clearInterval(id);
   }, []);
   const text = syncStatusText(status, pending, Date.now());
+
+  // Announce a change of state (syncing, offline, error, idle) to screen readers. Not a live
+  // region: that would also announce the minute tick ("Synced 5 min ago") and every count change.
+  const announced = useRef(status.state);
+  const latestText = useRef(text);
+  latestText.current = text;
+  useEffect(() => {
+    if (announced.current === status.state) return;
+    announced.current = status.state;
+    if (latestText.current) AccessibilityInfo.announceForAccessibility(latestText.current);
+  }, [status.state]);
+
   if (!text) return null;
   return (
-    <Text accessibilityLiveRegion="polite" style={[styles.line, { color: theme.muted }]}>
+    <Text style={[styles.line, { color: theme.muted }]}>
       {text}
     </Text>
   );

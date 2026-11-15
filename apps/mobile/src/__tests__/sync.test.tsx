@@ -3,7 +3,7 @@ import { CollectionStore, createMemoryPriceCache, createMemoryRepo, type Collect
 import { FakeSyncRemote } from '@mst/collection-core/testing';
 import { act, render, screen } from '@testing-library/react-native';
 import type { ReactNode } from 'react';
-import { AppState, Text } from 'react-native';
+import { AccessibilityInfo, AppState, Text } from 'react-native';
 import HomeScreen from '../../app/index';
 import SetScreen from '../../app/set/[id]/index';
 import { signedOutState, type AuthState } from '../auth/AuthProvider';
@@ -281,16 +281,66 @@ describe('sync triggers', () => {
     expect(env.server.pullCalls).toHaveLength(3);
   });
 
-  it('does not sync when the local data belongs to a different user', async () => {
+  it("wipes another account's local data before syncing as the new user", async () => {
     const env = setup();
     env.repo.setLocalOwner('someone-else');
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    env.store.track('fx');
     await renderSync(env);
-    expect(warn).toHaveBeenCalled();
-    expect(env.server.pullCalls).toHaveLength(0);
-    expect(env.repo.getLocalOwner()).toBe('someone-else');
-    expect(screen.getByText('engine: no')).toBeOnTheScreen();
-    expect(screen.queryByText(/Sync/)).toBeNull();
+    expect(env.store.getTracked()).toEqual([]);
+    expect(env.repo.getLocalOwner()).toBe('user-1');
+    expect(env.server.snapshot().tracked).toEqual([]);
+    expect(env.server.pullCalls).toHaveLength(1);
+    expect(screen.getByText('engine: yes')).toBeOnTheScreen();
+  });
+
+  it('keeps the 15 min timer going when the foreground sync joins a run started in the background', async () => {
+    const env = setup();
+    await renderSync(env);
+    await setAppState('background');
+    const gate = deferred();
+    env.server.beforePull = () => gate.promise;
+    await setNetwork(false);
+    await setNetwork(true); // starts a run while backgrounded; it blocks in pull
+    expect(env.server.pullCalls).toHaveLength(2);
+    await setAppState('active'); // joins the blocked run
+    env.server.beforePull = undefined;
+    await act(async () => gate.resolve());
+    await advance(0);
+    const pulls = env.server.pullCalls.length;
+    await advance(15 * 60_000);
+    expect(env.server.pullCalls.length).toBe(pulls + 1);
+    await advance(15 * 60_000);
+    expect(env.server.pullCalls.length).toBe(pulls + 2);
+  });
+
+  it('re-arms the 15 min timer on foreground, counted from then', async () => {
+    const env = setup();
+    await renderSync(env);
+    await advance(10 * 60_000);
+    await setAppState('background');
+    await advance(10 * 60_000);
+    await setAppState('active'); // syncs now, and the next periodic run is 15 min from here
+    expect(env.server.pullCalls).toHaveLength(2);
+    await advance(15 * 60_000 - 1);
+    expect(env.server.pullCalls).toHaveLength(2);
+    await advance(1);
+    expect(env.server.pullCalls).toHaveLength(3);
+  });
+
+  it('releases the NetInfo and AppState listeners and any retry timer when the session ends', async () => {
+    const env = setup();
+    env.server.failNext('pull', new Error('pull_changes: permission denied'));
+    const view = await renderSync(env);
+    expect(netListeners.size).toBe(1);
+    expect(appListeners.size).toBe(1);
+    expect(jest.getTimerCount()).toBeGreaterThan(0); // the 30 s retry and the status line tick
+    await view.rerender(<SyncTree {...env} auth={signedOutState} />);
+    await advance(0);
+    expect(netListeners.size).toBe(0);
+    expect(appListeners.size).toBe(0);
+    expect(jest.getTimerCount()).toBe(0);
+    await advance(60 * 60_000);
+    expect(env.server.pullCalls).toHaveLength(1);
   });
 });
 
@@ -338,6 +388,23 @@ describe('SyncStatusLine', () => {
     await advance(0);
     expect(screen.getByText('My Sets')).toBeOnTheScreen();
     expect(screen.getByText('Synced just now')).toBeOnTheScreen();
+  });
+
+  it('announces the status only when its state changes, not as the time ages', async () => {
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+    const env = setup();
+    await renderSync(env);
+    const line = screen.getByText('Synced just now');
+    expect(line.props.accessibilityLiveRegion).toBeUndefined();
+    announce.mockClear();
+    await advance(5 * 60_000);
+    expect(screen.getByText('Synced 5 min ago')).toBeOnTheScreen();
+    expect(announce).not.toHaveBeenCalled();
+    await setNetwork(false);
+    expect(announce).toHaveBeenCalledTimes(1);
+    expect(announce).toHaveBeenCalledWith("Offline — changes will sync when you're back online");
+    await advance(5 * 60_000);
+    expect(announce).toHaveBeenCalledTimes(1);
   });
 
   it('renders nothing without a sync session', async () => {
@@ -430,6 +497,46 @@ describe('prices', () => {
     await setAppState('active');
     expect(fetchPrices).toHaveBeenCalledTimes(2);
     expect(screen.getByText(/Owned \$8\.00/)).toBeOnTheScreen();
+  });
+
+  it('survives a fetch that throws synchronously, and retries that set at the next check', async () => {
+    const cache = createMemoryPriceCache();
+    const fetchPrices = jest
+      .fn()
+      .mockImplementationOnce(() => {
+        throw new Error('not configured');
+      })
+      .mockResolvedValue({ 'c-001|normal': 4 });
+    await renderSet(cache, fetchPrices);
+    expect(fetchPrices).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(/1 of 11 collected/)).toBeOnTheScreen(); // the screen survived
+    await setAppState('background');
+    await setAppState('active');
+    expect(fetchPrices).toHaveBeenCalledTimes(2);
+    expect(screen.getByText(/Owned \$8\.00/)).toBeOnTheScreen();
+  });
+
+  it('survives a cache write that throws, without an unhandled rejection, and retries', async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (e: unknown) => unhandled.push(e);
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      const cache = createMemoryPriceCache();
+      const put = jest.spyOn(cache, 'put').mockImplementationOnce(() => {
+        throw new Error('database is locked');
+      });
+      const fetchPrices = jest.fn(async () => ({ 'c-001|normal': 4 }));
+      await renderSet(cache, fetchPrices);
+      await advance(0);
+      expect(put).toHaveBeenCalledTimes(1);
+      expect(unhandled).toEqual([]);
+      await setAppState('background');
+      await setAppState('active');
+      expect(fetchPrices).toHaveBeenCalledTimes(2);
+      expect(screen.getByText(/Owned \$8\.00/)).toBeOnTheScreen();
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
   });
 
   it('does not fetch while offline, and fetches when back online', async () => {

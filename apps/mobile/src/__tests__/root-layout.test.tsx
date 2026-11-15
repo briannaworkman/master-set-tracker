@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react-native';
+import { fireEvent, render, screen } from '@testing-library/react-native';
 import type { ReactNode } from 'react';
 import * as SplashScreen from 'expo-splash-screen';
 import RootLayout from '../../app/_layout';
@@ -20,20 +20,27 @@ jest.mock('expo-splash-screen', () => ({ preventAutoHideAsync: jest.fn(async () 
 let mockAuthStatus = 'signedIn';
 jest.mock('../auth/AuthProvider', () => ({
   AuthProvider: ({ children }: { children: ReactNode }) => children,
-  useAuth: () => ({ status: mockAuthStatus, userId: null, email: null, provider: null }),
+  useAuth: () => ({ status: mockAuthStatus, userId: mockAuthStatus === 'signedIn' ? 'user-1' : null, email: null, provider: null }),
 }));
-jest.mock('../backend/supabase', () => ({ getSupabase: () => ({}) }));
+const mockSignOut = jest.fn(async () => ({ error: null }));
+jest.mock('../backend/supabase', () => ({ getSupabase: () => ({ auth: { signOut: mockSignOut } }) }));
 
 // The real provider renders nothing until native inset metrics arrive.
 jest.mock('react-native-safe-area-context', () => jest.requireActual('react-native-safe-area-context/jest/mock').default);
 
 let mockOpenError: Error | null = null;
+let mockOwnerError: Error | null = null;
 jest.mock('../db/openStore', () => {
   const { CollectionStore, createMemoryPriceCache, createMemoryRepo } = jest.requireActual('@mst/collection-core');
   return {
     getAppStore: () => {
       if (mockOpenError) throw mockOpenError;
       const repo = createMemoryRepo();
+      const getLocalOwner = repo.getLocalOwner;
+      repo.getLocalOwner = () => {
+        if (mockOwnerError) throw mockOwnerError;
+        return getLocalOwner();
+      };
       return { store: new CollectionStore(repo), repo, priceCache: createMemoryPriceCache(), persistent: true };
     },
   };
@@ -42,7 +49,9 @@ jest.mock('../db/openStore', () => {
 beforeEach(() => {
   mockScreens.length = 0;
   mockOpenError = null;
+  mockOwnerError = null;
   mockAuthStatus = 'signedIn';
+  mockSignOut.mockClear();
 });
 
 it('titles the home screen "My Sets" so back buttons never read "index"', async () => {
@@ -80,6 +89,7 @@ it('registers only the app routes while signed in', async () => {
   expect(mockScreens.map((s) => s.name)).toEqual([
     'index',
     'browse',
+    'account',
     'set/[id]/index',
     'set/[id]/settings',
     'set/[id]/card/[cardId]',
@@ -104,6 +114,22 @@ it('declares every route file in the signed-in or sign-in group', async () => {
   await render(<RootLayout />);
   const declared = [...signedIn, ...mockScreens.map((s) => s.name)];
   expect([...declared].sort()).toEqual([...routes].sort());
+});
+
+it('titles the account screen "Account"', async () => {
+  await render(<RootLayout />);
+  expect(mockScreens.find((s) => s.name === 'account')?.options).toMatchObject({ title: 'Account' });
+});
+
+it('shows no routes, and offers sign-out, when the local data cannot be checked for the user', async () => {
+  mockOwnerError = new Error('database is locked');
+  const logged = jest.spyOn(console, 'error').mockImplementation(() => {});
+  await render(<RootLayout />);
+  logged.mockRestore();
+  expect(mockScreens).toEqual([]);
+  expect(screen.getByText("Couldn't open your collection")).toBeOnTheScreen();
+  await fireEvent.press(screen.getByRole('button', { name: 'Sign out' }));
+  expect(mockSignOut).toHaveBeenCalledWith({ scope: 'local' });
 });
 
 it('keeps the splash up while loading and hides it on the first auth result', async () => {

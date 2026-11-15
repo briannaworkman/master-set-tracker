@@ -18,8 +18,8 @@ export interface PriceRefreshOptions {
  * The PriceBook for the tracked sets, read from `cache`. While enabled and online, each tracked set
  * whose cache is missing or older than 12 h is fetched and stored; the book is rebuilt after each
  * store. Checks run on mount, when the tracked sets change, on foreground, when the network comes
- * back and every 15 min while foregrounded. A failed fetch keeps the old cache and is retried at
- * the next check.
+ * back and every 15 min while foregrounded. A failed fetch or cache write (thrown or rejected)
+ * keeps the old cache and is retried at the next check; nothing escapes to the caller.
  */
 export function usePriceRefresh({ cache, fetchPrices, enabled }: PriceRefreshOptions): PriceBook {
   const tracked = useTracked();
@@ -39,26 +39,36 @@ export function usePriceRefresh({ cache, fetchPrices, enabled }: PriceRefreshOpt
     const inFlight = new Set<string>();
     let interval: ReturnType<typeof setInterval> | null = null;
 
+    /** Fetches and stores one set. Never throws or rejects, and always clears its in-flight mark. */
+    const load = async (setId: string) => {
+      inFlight.add(setId);
+      try {
+        // Inside an async function, so a synchronous throw becomes a rejection caught below.
+        const prices = await latest.current.fetchPrices(setId);
+        if (disposed) return;
+        cache.put(setId, new Date().toISOString(), prices);
+        setVersion((v) => v + 1);
+      } catch {
+        // Silent: keep the old cache and try again at the next check.
+      } finally {
+        inFlight.delete(setId);
+      }
+    };
+
+    const isFresh = (setId: string) => {
+      try {
+        const cached = cache.get(setId);
+        return cached !== null && Date.now() - Date.parse(cached.fetchedAt) < PRICE_STALE_MS;
+      } catch {
+        return false;
+      }
+    };
+
     const refresh = () => {
       if (disposed || !triggers.isOnline()) return;
       for (const setId of latest.current.setIds) {
-        if (inFlight.has(setId)) continue;
-        const cached = cache.get(setId);
-        if (cached && Date.now() - Date.parse(cached.fetchedAt) < PRICE_STALE_MS) continue;
-        inFlight.add(setId);
-        latest.current
-          .fetchPrices(setId)
-          .then(
-            (prices) => {
-              if (disposed) return;
-              cache.put(setId, new Date().toISOString(), prices);
-              setVersion((v) => v + 1);
-            },
-            () => {
-              // Silent: keep the old cache and try again at the next check.
-            },
-          )
-          .finally(() => inFlight.delete(setId));
+        if (inFlight.has(setId) || isFresh(setId)) continue;
+        void load(setId);
       }
     };
     const startInterval = () => {
@@ -90,8 +100,11 @@ export function usePriceRefresh({ cache, fetchPrices, enabled }: PriceRefreshOpt
     };
   }, [enabled, cache]);
 
-  // A newly tracked set is checked at once.
+  // A newly tracked set is checked at once. Not on mount: the effect above has just checked.
+  const seenSetIds = useRef(setIds);
   useEffect(() => {
+    if (seenSetIds.current === setIds) return;
+    seenSetIds.current = setIds;
     check.current();
   }, [setIds]);
 

@@ -1,4 +1,4 @@
-import { SyncEngine, type CollectionRepo, type SyncRemote, type SyncStatus } from '@mst/collection-core';
+import { SyncEngine, type CollectionRepo, type PriceCache, type SyncRemote, type SyncStatus } from '@mst/collection-core';
 import {
   createContext,
   useCallback,
@@ -28,28 +28,19 @@ const SyncContext = createContext<SyncContextValue | null>(null);
 
 function useSyncContext(hook: string): SyncContextValue {
   const ctx = useContext(SyncContext);
-  if (!ctx) throw new Error(`${hook} must be used inside a SyncProvider`);
+  if (!ctx) throw new Error(`${hook} must be used inside a running sync session`);
   return ctx;
 }
 
 /**
- * Runs `engine` for the signed-in session: syncs on mount (sign-in), on foreground, when the
- * network comes back, 2 s after the last local write, and every 15 min while foregrounded
- * (counted from the last run). A run that ends in 'error' is retried after 30 s, 2 min, then
- * every 10 min until one succeeds; 'offline' waits for the network to come back instead.
- * Status listeners only schedule timers: syncNow is never called from inside one.
+ * Runs `engine` for the signed-in session (renders nothing): syncs on mount (sign-in), on
+ * foreground, when the network comes back, 2 s after the last local write, and every 15 min while
+ * foregrounded (counted from the end of the last run or the last foreground, re-armed after every
+ * run so it can't silently stop). A run that ends in 'error' is retried after 30 s, 2 min, then
+ * every 10 min until one succeeds; 'offline' waits for the network to come back instead. Status
+ * listeners only schedule timers: syncNow is never called from inside one. Unmounting releases
+ * every listener and timer.
  */
-export function SyncProvider({ engine, repo, children }: { engine: SyncEngine; repo: CollectionRepo; children: ReactNode }) {
-  const value = useMemo(() => ({ engine, repo }), [engine, repo]);
-  return (
-    <SyncContext.Provider value={value}>
-      <SyncTriggers engine={engine} repo={repo} />
-      {children}
-    </SyncContext.Provider>
-  );
-}
-
-/** The triggers and retry policy of SyncProvider, without the context (renders nothing). */
 function SyncTriggers({ engine, repo }: { engine: SyncEngine; repo: CollectionRepo }) {
   const store = useStore();
 
@@ -78,8 +69,16 @@ function SyncTriggers({ engine, repo }: { engine: SyncEngine; repo: CollectionRe
     let periodicTimer: ReturnType<typeof setTimeout> | null = null;
     let writeTimer: ReturnType<typeof setTimeout> | null = null;
 
+    const armPeriodic = () => {
+      periodicTimer = cancel(periodicTimer);
+      if (triggers.isForeground()) periodicTimer = later(PERIODIC_MS);
+    };
+
     const triggers = watchAppTriggers({
-      onForeground: run,
+      onForeground: () => {
+        armPeriodic();
+        run();
+      },
       onBackground: () => {
         periodicTimer = cancel(periodicTimer);
       },
@@ -102,9 +101,11 @@ function SyncTriggers({ engine, repo }: { engine: SyncEngine; repo: CollectionRe
       prevState = s.state;
       if (s.state === 'syncing') {
         retryTimer = cancel(retryTimer);
-        periodicTimer = cancel(periodicTimer);
-        if (triggers.isForeground()) periodicTimer = later(PERIODIC_MS);
-      } else if (s.state === 'error') {
+        return;
+      }
+      // A run ended (or the state changed without one): the next periodic run is 15 min from now.
+      armPeriodic();
+      if (s.state === 'error') {
         retryTimer = cancel(retryTimer);
         retryTimer = later(RETRY_DELAYS_MS[Math.min(failures, RETRY_DELAYS_MS.length - 1)]!);
         failures += 1;
@@ -173,44 +174,126 @@ export function usePendingCount(): number {
   return useSyncExternalStore(subscribe, get, get);
 }
 
-/** True when there is a SyncProvider above (a signed-in session whose engine is running). */
+/** True inside a signed-in session whose engine exists (it may be stopping during sign-out). */
 export function useHasSync(): boolean {
   return useContext(SyncContext) !== null;
 }
 
+/** How long sign-out waits for the engine to stop before wiping anyway (see endSession). */
+export const STOP_TIMEOUT_MS = 15_000;
+
+/** Resolves when `p` settles or after `ms`, whichever comes first; never rejects. */
+export function settleWithin(p: Promise<unknown>, ms: number): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const t = setTimeout(resolve, ms);
+    const done = () => {
+      clearTimeout(t);
+      resolve();
+    };
+    p.then(done, done);
+  });
+}
+
 export interface SyncSession {
-  /** The current session's engine, or null (signed out, starting, or local data owned by another user). */
+  /** The current session's engine, or null (signed out, or the local data is still being checked). */
   engine: SyncEngine | null;
   /**
    * Stops the current engine for good and resolves once nothing more will be written; resolves
-   * at once if none is running. Await this before wiping the store (sign-out).
+   * at once if none is running.
    */
   stop(): Promise<void>;
-  /** The signed-in user differs from the local data's owner, so sync is held back (sign-out wipes it). */
-  ownerMismatch: boolean;
+  /**
+   * The signed-in user's local data has been checked (and wiped if it was another account's), so
+   * app screens may render. False while signed out and while the check is pending.
+   */
+  ready: boolean;
+  /** The check (or the wipe it needed) failed: the local data must not be shown. */
+  failed: boolean;
+  /** Ready and not ending: price fetching may run. */
+  pricesEnabled: boolean;
+  /** Local changes not yet pushed (repo.dirtyCount()). */
+  pendingCount(): number;
+  /**
+   * The sign-out / account-deletion step after any sync and confirmation: stops background sync
+   * and price fetching, stops the engine (waiting at most STOP_TIMEOUT_MS: once stop() is called
+   * the engine writes nothing more, so wiping after the timeout is still safe), then wipes local
+   * collection, tracked sets, sync state (incl. owner) and the price cache. If the wipe throws, a
+   * fresh engine is started (see restart) and the error is rethrown.
+   */
+  endSession(): Promise<void>;
+  /** Starts a fresh engine and resumes price fetching for the still-signed-in user. */
+  restart(): void;
 }
 
 const SyncSessionContext = createContext<SyncSession>({
   engine: null,
   stop: () => Promise.resolve(),
-  ownerMismatch: false,
+  ready: false,
+  failed: false,
+  pricesEnabled: false,
+  pendingCount: () => 0,
+  endSession: () => Promise.resolve(),
+  restart: () => {},
 });
 
 export function useSyncSession(): SyncSession {
   return useContext(SyncSessionContext);
 }
 
+export type SessionGate = 'loading' | 'signedOut' | 'signedIn' | 'failed';
+
 /**
- * One SyncEngine per signed-in session. When the user signs in, waits for the previous engine
- * (if any) to finish stopping, checks the local owner (adopting unowned local data, holding sync
- * back if another user owns it), then creates the engine. On sign-out or a user change the
- * engine is stopped.
+ * What the app may show: 'signedIn' only once the signed-in user's local data has been checked,
+ * so another account's marks are never on screen; 'loading' until then (and while the auth
+ * session loads); 'failed' if that check failed.
  */
-export function SyncSessionProvider({ repo, remote, children }: { repo: CollectionRepo; remote: SyncRemote; children: ReactNode }) {
+export function useSessionGate(): SessionGate {
+  const { status } = useAuth();
+  const { ready, failed } = useSyncSession();
+  if (status === 'loading') return 'loading';
+  if (status === 'signedOut') return 'signedOut';
+  if (ready) return 'signedIn';
+  return failed ? 'failed' : 'loading';
+}
+
+/** True when the local data was written by a different account (or by some earlier, unknown one). */
+function belongsToSomeoneElse(repo: CollectionRepo, userId: string): boolean {
+  const owner = repo.getLocalOwner();
+  if (owner !== null) return owner !== userId;
+  // Unowned: adopt it only if it has never synced (data from before accounts existed).
+  const { cursor, lastSyncedAt } = repo.getSyncState();
+  return cursor > 0 || lastSyncedAt !== null;
+}
+
+/**
+ * One SyncEngine per signed-in session. When a user signs in it waits for the previous engine (if
+ * any) to finish stopping, then checks the local data: another account's data (or unowned data
+ * with sync history) is wiped, including the price cache, before `ready` turns true; unowned data
+ * that never synced is adopted. Then it records the owner and creates the engine. On sign-out or a
+ * user change the engine is stopped.
+ */
+export function SyncSessionProvider({
+  repo,
+  remote,
+  priceCache,
+  children,
+}: {
+  repo: CollectionRepo;
+  remote: SyncRemote;
+  /** Cleared with the local data (the SQLite repo's wipe covers its own table; a memory cache isn't). */
+  priceCache?: PriceCache;
+  children: ReactNode;
+}) {
   const store = useStore();
   const { status, userId } = useAuth();
   const [engine, setEngine] = useState<SyncEngine | null>(null);
-  const [ownerMismatch, setOwnerMismatch] = useState(false);
+  /** The user whose local data has been checked; null while signed out or checking. */
+  const [checkedUser, setCheckedUser] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+  /** Set by endSession: background sync and price fetching are off until restart or sign-out. */
+  const [closing, setClosing] = useState(false);
+  /** Bumped by restart() to create a fresh engine for the same user. */
+  const [generation, setGeneration] = useState(0);
   const engineRef = useRef<SyncEngine | null>(null);
   const lastStop = useRef<Promise<void>>(Promise.resolve());
 
@@ -220,22 +303,35 @@ export function SyncSessionProvider({ repo, remote, children }: { repo: Collecti
     return lastStop.current;
   }, []);
 
+  const wipeLocal = useCallback(() => {
+    store.wipe();
+    priceCache?.clear();
+  }, [store, priceCache]);
+
   useEffect(() => {
-    if (status !== 'signedIn' || !userId) return;
+    if (status !== 'signedIn' || !userId) {
+      setCheckedUser(null);
+      setFailed(false);
+      setClosing(false);
+      return;
+    }
     let cancelled = false;
     let created: SyncEngine | null = null;
-    void lastStop.current.then(() => {
+    // stop() halts every write at once, so the wait is capped: a hung request can't block sign-in.
+    void settleWithin(lastStop.current, STOP_TIMEOUT_MS).then(() => {
       if (cancelled) return;
-      const owner = repo.getLocalOwner();
-      if (owner !== null && owner !== userId) {
-        console.warn('Local data belongs to a different account; sync is paused until it is cleared.');
-        setOwnerMismatch(true);
+      try {
+        if (belongsToSomeoneElse(repo, userId)) wipeLocal();
+        if (repo.getLocalOwner() === null) repo.setLocalOwner(userId);
+      } catch (e) {
+        console.error("Could not clear the previous account's local data", e);
+        setFailed(true);
         return;
       }
-      if (owner === null) repo.setLocalOwner(userId);
       created = new SyncEngine({ repo, store, remote });
       engineRef.current = created;
       setEngine(created);
+      setCheckedUser(userId);
     });
     return () => {
       cancelled = true;
@@ -244,17 +340,49 @@ export function SyncSessionProvider({ repo, remote, children }: { repo: Collecti
         if (engineRef.current === created) engineRef.current = null;
       }
       setEngine(null);
-      setOwnerMismatch(false);
+      setFailed(false);
     };
-  }, [status, userId, repo, store, remote]);
+  }, [status, userId, repo, store, remote, wipeLocal, generation]);
 
-  const session = useMemo(() => ({ engine, stop, ownerMismatch }), [engine, stop, ownerMismatch]);
+  const restart = useCallback(() => {
+    setClosing(false);
+    setGeneration((g) => g + 1);
+  }, []);
+
+  const endSession = useCallback(async () => {
+    setClosing(true);
+    await settleWithin(stop(), STOP_TIMEOUT_MS);
+    try {
+      wipeLocal();
+    } catch (e) {
+      console.error('Could not wipe local data', e);
+      restart();
+      throw e;
+    }
+  }, [stop, wipeLocal, restart]);
+
+  const pendingCount = useCallback(() => repo.dirtyCount(), [repo]);
+
+  const ready = status === 'signedIn' && userId !== null && checkedUser === userId;
+  const session = useMemo<SyncSession>(
+    () => ({
+      engine,
+      stop,
+      ready,
+      failed: failed && !ready,
+      pricesEnabled: ready && !closing,
+      pendingCount,
+      endSession,
+      restart,
+    }),
+    [engine, stop, ready, failed, closing, pendingCount, endSession, restart],
+  );
   const sync = useMemo(() => (engine ? { engine, repo } : null), [engine, repo]);
   // A fixed tree shape, so the app below doesn't remount when the engine comes and goes.
   return (
     <SyncSessionContext.Provider value={session}>
       <SyncContext.Provider value={sync}>
-        {engine ? <SyncTriggers engine={engine} repo={repo} /> : null}
+        {engine && !closing ? <SyncTriggers engine={engine} repo={repo} /> : null}
         {children}
       </SyncContext.Provider>
     </SyncSessionContext.Provider>
