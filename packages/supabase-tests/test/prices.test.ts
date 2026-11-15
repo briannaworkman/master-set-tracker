@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { asAnon, asService, asUser, createDb, createUser } from '../src/harness';
-import { pricesFromTcgdexCard, refreshSet, timingSafeEqual } from '../../../supabase/functions/_shared/prices';
+import { readFileSync } from 'node:fs';
+import { authorizeRefresh, pricesFromTcgdexCard, refreshSet, timingSafeEqual } from '../../../supabase/functions/_shared/prices';
+import { migrationFiles } from '../src/harness';
 
 // Shaped like GET https://api.tcgdex.net/v2/en/cards/sv08.5-001 (USD part of pricing).
 const sv085_001 = {
@@ -96,6 +98,43 @@ describe('timingSafeEqual', () => {
     expect(timingSafeEqual('', 'x')).toBe(false);
     expect(timingSafeEqual('', '')).toBe(true);
     expect(timingSafeEqual('é', 'e\u0301')).toBe(false);
+  });
+});
+
+describe('authorizeRefresh (refresh-prices gate)', () => {
+  const SECRET = 'a'.repeat(64);
+
+  it('is misconfigured (500) without a REFRESH_PRICES_SECRET, whatever the bearer', () => {
+    for (const secret of [undefined, '']) {
+      expect(authorizeRefresh(`Bearer ${SECRET}`, secret)).toEqual({ status: 500, body: { error: 'misconfigured' } });
+      expect(authorizeRefresh(null, secret)).toEqual({ status: 500, body: { error: 'misconfigured' } });
+    }
+  });
+
+  it('rejects (401) a missing, empty or wrong bearer', () => {
+    for (const header of [null, '', 'Bearer ', `Bearer ${SECRET}x`, `Bearer ${'b'.repeat(64)}`, SECRET.slice(1)]) {
+      expect(authorizeRefresh(header, SECRET)).toEqual({ status: 401, body: { error: 'unauthorized' } });
+    }
+  });
+
+  it('accepts exactly the secret as the bearer (any case of "Bearer")', () => {
+    expect(authorizeRefresh(`Bearer ${SECRET}`, SECRET)).toBeNull();
+    expect(authorizeRefresh(`bearer ${SECRET}`, SECRET)).toBeNull();
+  });
+});
+
+describe('prices migration secrets', () => {
+  const sql = () => migrationFiles().map((f) => readFileSync(f, 'utf8')).join('\n');
+
+  it('schedules the cron call with the dedicated Vault secret, never the service-role key', () => {
+    expect(sql()).toContain("name = 'refresh_prices_secret'");
+    expect(sql()).toContain("name = 'refresh_prices_url'");
+    expect(sql()).not.toMatch(/service_role_key/);
+  });
+
+  it('enables pg_cron and pg_net only where they are available', () => {
+    expect(sql()).toMatch(/pg_available_extensions[\s\S]*create extension if not exists pg_cron/);
+    expect(sql()).toMatch(/pg_available_extensions[\s\S]*create extension if not exists pg_net/);
   });
 });
 

@@ -427,10 +427,9 @@ enabled = true
 # format_options = "{\"keywordCase\":\"upper\",\"indent\":2,\"maxWidth\":180,\"commaStyle\":\"trailing\"}"
 
 [functions.refresh-prices]
-# The platform gateway cannot verify the new non-JWT secret keys, so verify_jwt is off and the
-# function's own constant-time check of the bearer against SUPABASE_SERVICE_ROLE_KEY is the gate.
-# The Vault secret `service_role_key` must hold exactly the value the function sees as
-# SUPABASE_SERVICE_ROLE_KEY.
+# Called only by pg_cron. The gate is the function's own constant-time check of the bearer
+# against its REFRESH_PRICES_SECRET (set with `npx supabase secrets set`); pg_cron sends the same
+# value from the Vault secret `refresh_prices_secret`. Not a JWT, so the gateway check is off.
 verify_jwt = false
 
 [functions.delete-account]

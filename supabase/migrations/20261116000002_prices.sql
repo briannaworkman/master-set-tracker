@@ -8,25 +8,31 @@
 -- Hosted project: "Automatically expose new tables" is off, so every grant is explicit and
 -- all API-role privileges are revoked first. RLS is enabled here.
 --
--- Daily schedule (09:00 UTC): created below by a guarded DO block. It is a no-op (raise
--- notice) unless the pg_cron and pg_net extensions are installed AND the Vault holds both
--- secrets. No key or URL literal lives in this file. Task 9 must, once per environment:
---   1. Enable the pg_cron and pg_net extensions (Dashboard > Database > Extensions).
---   2. Create the Vault secrets (SQL editor, as postgres):
+-- Daily schedule (09:00 UTC): pg_cron calls the refresh-prices Edge Function through pg_net.
+-- The extensions are created below where available (hosted Supabase has both; PGlite, used by
+-- the tests, has neither, so it skips them). The schedule itself is created by a guarded DO block
+-- that is a no-op (raise notice) unless pg_cron, pg_net and the Vault are present AND the Vault
+-- holds both secrets. No secret or URL literal lives in this file.
+--
+-- The function's only gate is a dedicated random secret, REFRESH_PRICES_SECRET (not the
+-- service-role key): pg_cron sends it as the bearer and the function compares it in constant
+-- time. Owner steps, once per project, BEFORE `npx supabase db push` (Claude never sees the value):
+--   1. Generate the secret:          openssl rand -hex 32
+--   2. Give it to the function:      npx supabase secrets set REFRESH_PRICES_SECRET=<value>
+--   3. In the dashboard SQL editor, store the same value and the function URL in the Vault:
+--        select vault.create_secret('<same value>', 'refresh_prices_secret');
 --        select vault.create_secret('https://<project-ref>.supabase.co/functions/v1/refresh-prices', 'refresh_prices_url');
---        select vault.create_secret('<service role key>', 'service_role_key');
---      The service_role_key secret must hold EXACTLY the value the function sees as
---      SUPABASE_SERVICE_ROLE_KEY (the function compares the bearer to it in constant time).
---   3. Deploy the function:  supabase functions deploy refresh-prices
+--   4. npx supabase db push (this migration then creates the schedule), then
+--      npx supabase functions deploy refresh-prices
 --      (config.toml sets verify_jwt = false: the function's own check is the only gate).
---   4. Re-run the schedule block below (or just the cron.schedule call) now that the
---      prerequisites exist. To schedule manually:
---        select cron.schedule('refresh-prices-daily', '0 9 * * *', $cmd$
---          select net.http_post(
---            url := (select decrypted_secret from vault.decrypted_secrets where name = 'refresh_prices_url'),
---            headers := jsonb_build_object('Content-Type', 'application/json',
---              'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'service_role_key')),
---            body := '{}'::jsonb, timeout_milliseconds := 120000) $cmd$);
+-- If the Vault secrets were created after this migration ran, create the schedule by hand in
+-- the SQL editor (cron.schedule replaces a job with the same name):
+--   select cron.schedule('refresh-prices-daily', '0 9 * * *', $cmd$
+--     select net.http_post(
+--       url := (select decrypted_secret from vault.decrypted_secrets where name = 'refresh_prices_url'),
+--       headers := jsonb_build_object('Content-Type', 'application/json',
+--         'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'refresh_prices_secret')),
+--       body := '{}'::jsonb, timeout_milliseconds := 120000) $cmd$);
 
 create table public.price_sets (
   set_id text primary key,
@@ -67,6 +73,27 @@ create policy card_prices_select_authenticated on public.card_prices
 -- Daily schedule (guarded; see header)
 -- ---------------------------------------------------------------------------
 
+-- Extensions, only where the server has them (pg_available_extensions), so PGlite skips them.
+-- The schemas match what Supabase itself uses (pg_cron in pg_catalog, pg_net in extensions).
+do $extensions$
+begin
+  if exists (select 1 from pg_available_extensions where name = 'pg_cron') then
+    create extension if not exists pg_cron with schema pg_catalog;
+  else
+    raise notice 'prices: pg_cron is not available; skipping it';
+  end if;
+  if exists (select 1 from pg_available_extensions where name = 'pg_net') then
+    if exists (select 1 from pg_namespace where nspname = 'extensions') then
+      create extension if not exists pg_net with schema extensions;
+    else
+      create extension if not exists pg_net;
+    end if;
+  else
+    raise notice 'prices: pg_net is not available; skipping it';
+  end if;
+end
+$extensions$;
+
 do $schedule$
 begin
   if not exists (select 1 from pg_extension where extname = 'pg_cron')
@@ -81,8 +108,8 @@ begin
     return;
   end if;
   if not exists (select 1 from vault.decrypted_secrets where name = 'refresh_prices_url')
-     or not exists (select 1 from vault.decrypted_secrets where name = 'service_role_key') then
-    raise notice 'prices: Vault secrets refresh_prices_url / service_role_key missing; skipping refresh-prices schedule';
+     or not exists (select 1 from vault.decrypted_secrets where name = 'refresh_prices_secret') then
+    raise notice 'prices: Vault secrets refresh_prices_url / refresh_prices_secret missing; skipping refresh-prices schedule';
     return;
   end if;
   perform cron.schedule('refresh-prices-daily', '0 9 * * *', $cmd$
@@ -90,7 +117,7 @@ begin
       url := (select decrypted_secret from vault.decrypted_secrets where name = 'refresh_prices_url'),
       headers := jsonb_build_object(
         'Content-Type', 'application/json',
-        'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'service_role_key')),
+        'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'refresh_prices_secret')),
       body := '{}'::jsonb,
       timeout_milliseconds := 120000)
   $cmd$);

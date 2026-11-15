@@ -1,22 +1,16 @@
-// Deno Edge Function: daily TCGdex price refresh. Invoked by pg_cron (see the prices
-// migration) with the service-role bearer. SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are
-// provided by Supabase. Not type-checked or run by the Node workspace.
-import { createClient } from 'npm:@supabase/supabase-js@2';
-import { refreshSet, timingSafeEqual, type PriceRow } from '../_shared/prices.ts';
+// Deno Edge Function: daily TCGdex price refresh. Invoked by pg_cron (see the prices migration)
+// with the dedicated REFRESH_PRICES_SECRET as the bearer (Vault secret `refresh_prices_secret`
+// holds the same value). SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are provided by Supabase;
+// the service-role key is used only to write card_prices. REFRESH_PRICES_SECRET is set by the
+// owner with `npx supabase secrets set`. Not type-checked or run by the Node workspace; the gate
+// and the price logic live in ../_shared/prices.ts, which is tested.
+import { createClient } from 'npm:@supabase/supabase-js@2.119.0';
+import { authorizeRefresh, refreshSet, type PriceRow } from '../_shared/prices.ts';
 
 const TCGDEX = 'https://api.tcgdex.net/v2/en';
 
 function json(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
-}
-
-/**
- * The only gate (verify_jwt is off for this function, see supabase/config.toml): the bearer must
- * equal SUPABASE_SERVICE_ROLE_KEY exactly, compared in constant time. No JWT claim is trusted.
- */
-function isServiceRole(req: Request, serviceKey: string): boolean {
-  const token = (req.headers.get('authorization') ?? '').replace(/^Bearer\s+/i, '');
-  return token !== '' && timingSafeEqual(token, serviceKey);
 }
 
 async function fetchJson(path: string): Promise<unknown> {
@@ -26,10 +20,12 @@ async function fetchJson(path: string): Promise<unknown> {
 }
 
 Deno.serve(async (req) => {
+  // The only gate (verify_jwt is off): the bearer must equal REFRESH_PRICES_SECRET exactly.
+  const denied = authorizeRefresh(req.headers.get('authorization'), Deno.env.get('REFRESH_PRICES_SECRET'));
+  if (denied) return json(denied.body, denied.status);
   const url = Deno.env.get('SUPABASE_URL');
   const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
   if (!url || !serviceKey) return json({ error: 'misconfigured' }, 500);
-  if (!isServiceRole(req, serviceKey)) return json({ error: 'unauthorized' }, 401);
 
   const db = createClient(url, serviceKey, { auth: { persistSession: false } });
   const { data: sets, error } = await db.from('price_sets').select('set_id, tcgdex_set_id').eq('enabled', true);

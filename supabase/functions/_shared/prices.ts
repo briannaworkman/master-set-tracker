@@ -84,3 +84,20 @@ export function timingSafeEqual(a: string, b: string): boolean {
   for (let i = 0; i < x.length; i++) diff |= x[i]! ^ y[i]!;
   return diff === 0;
 }
+
+/**
+ * The refresh-prices gate (verify_jwt is off for that function; see supabase/config.toml).
+ * `secret` is the function's REFRESH_PRICES_SECRET; pg_cron sends the same value, read from the
+ * Vault secret `refresh_prices_secret`, as the bearer. Returns null when authorized, otherwise the
+ * response to send: 500 when the secret is not configured (never fall open), 401 for a missing or
+ * wrong bearer (compared in constant time). No JWT claim is trusted.
+ */
+export function authorizeRefresh(
+  authorization: string | null,
+  secret: string | undefined,
+): { status: 401 | 500; body: { error: string } } | null {
+  if (!secret) return { status: 500, body: { error: 'misconfigured' } };
+  const token = /^Bearer\s+(\S+)\s*$/i.exec(authorization ?? '')?.[1];
+  if (!token || !timingSafeEqual(token, secret)) return { status: 401, body: { error: 'unauthorized' } };
+  return null;
+}
