@@ -28,6 +28,10 @@ GitHub it shows as a table). There is one row per card.
 | One column per version | A ✓ means the card exists in that version and counts toward the master set. A blank means it was not printed that way. |
 | Notes | Empty. Use it for your own review comments. |
 
+Excel and Google Sheets may show `001` as `1` in the Number column because
+they treat it as a number. Only the display changes: the rows are still in
+the right order. (Numbers, and GitHub's table view, keep the leading zeros.)
+
 The version columns only appear if at least one card in the set uses them:
 
 | Column | What it is |
@@ -140,6 +144,12 @@ except where it says so.
 8. **151 cosmos basic energies (not in the checklist).** Binderforge mentions
    unnumbered cosmos-foil basic energies inserted in 151 booster packs. They
    have no set number. Include them or not?
+9. **Lucario and Tyranitar foil promos (not in the checklist).** The Lucario
+   ex & Tyranitar ex Premium Collection also comes with non-ex Lucario and
+   Tyranitar foil promo cards, besides the stamped Lucario ex 051 and
+   Tyranitar ex 064 that are in the checklist. They are probably not part of
+   the Prismatic Evolutions numbering (likely Black Star promos or another
+   set's cards). Do you want them in this set's checklist?
 
 ## How to add a set
 
@@ -185,7 +195,7 @@ You need Node 22 and pnpm. Run commands from the repository root.
 3. Run `pnpm catalog build <id>`. It prints a summary line, e.g.
    `Prismatic Evolutions: 193 cards, 460 versions (Main set 180, Promos & stamped 13)`.
    A "fetched ≠ total" warning means TCGdex returned fewer cards than the set
-   reports. Don't publish until that's fixed.
+   reports. `publish` refuses to run while any warning is printed.
 4. Spot-check the CSV in `catalog/dist/checklists/` against a marketplace, then
    send it to the owner for review.
 
@@ -204,6 +214,17 @@ start using a set.
   `catalog/locks/<id>.lock.json`, which freezes every position. Only publish
   after the owner has signed off on the checklist. A set can only be
   published once.
+- `publish` freezes exactly what was reviewed. It rebuilds the set and
+  compares it with the committed `dist/sets/<id>.json` (cards, their order,
+  numbers, names, categories and versions). If TCGdex has changed anything
+  since the reviewed build, or the file is missing, or the build prints a
+  warning, it stops and lists the differences. Re-run `build`, have the new
+  checklist re-reviewed, commit it, then publish.
+- **Commit the lock file in the same commit as the `dist/` files** it
+  produced. Never hand-edit, move or delete a lock: it is the only record of
+  which position belongs to which version. If a set listed in
+  `dist/index.json` has no lock, `build` and `publish` refuse to run; restore
+  the lock from git.
 - **After publishing**, if a rules change would add or remove versions, `build`
   stops and lists what would be added and retired. Re-run it with
   `--accept-changes` to accept the change. This bumps the set's
@@ -211,3 +232,7 @@ start using a set.
   and retires removed positions. Retired positions are never reused. Existing
   positions never change.
 - `pnpm catalog build --all` rebuilds every set that has a rules file.
+- In `dist/sets/<id>.json`, `versionCount` is the length of the position
+  range (highest position ever used + 1, retired ones included), which is
+  what the QR code needs. It is not the number of versions to collect; the
+  build summary and the totals above count those.
