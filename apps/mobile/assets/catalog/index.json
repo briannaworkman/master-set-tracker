@@ -1,0 +1,48 @@
+{
+  "generatedAt": "2026-11-15T01:25:44.048Z",
+  "kinds": [
+    {
+      "id": "normal",
+      "label": "Normal",
+      "shortLabel": "N",
+      "color": "#A39D92",
+      "sortOrder": 0
+    },
+    {
+      "id": "holo",
+      "label": "Holo",
+      "shortLabel": "H",
+      "color": "#6E8FD8",
+      "sortOrder": 1
+    },
+    {
+      "id": "reverse",
+      "label": "Reverse Holo",
+      "shortLabel": "R",
+      "color": "rainbow",
+      "sortOrder": 2
+    },
+    {
+      "id": "pokeball",
+      "label": "Poké Ball Reverse",
+      "shortLabel": "PB",
+      "color": "#E5484D",
+      "sortOrder": 3
+    },
+    {
+      "id": "masterball",
+      "label": "Master Ball Reverse",
+      "shortLabel": "MB",
+      "color": "#8E4EC6",
+      "sortOrder": 4
+    },
+    {
+      "id": "single",
+      "label": "Single",
+      "shortLabel": "★",
+      "color": "#D4A72C",
+      "sortOrder": 5
+    }
+  ],
+  "sets": []
+}
