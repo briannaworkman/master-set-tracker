@@ -122,7 +122,7 @@ export default function SetScreen() {
 
   const header = (
     <View style={styles.header}>
-      <SetHeader name={set.name} collected={collected} total={total} value={value} />
+      <SetHeader collected={collected} total={total} value={value} />
       <FilterSwitch value={filter} onChange={changeFilter} />
       <Legend kinds={legend} />
     </View>

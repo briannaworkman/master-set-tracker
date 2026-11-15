@@ -53,6 +53,7 @@ it('keeps the header options object stable across taps', async () => {
     </TestProviders>,
   );
   const before = mockScreenOptions.at(-1);
+  expect(before).toMatchObject({ title: 'Fixture Set' });
   await fireEvent.press(screen.getByRole('button', { name: 'Bulbasaur 001, Normal, 0 owned' }));
   expect(mockScreenOptions.length).toBeGreaterThan(1);
   expect(mockScreenOptions.at(-1)).toBe(before);

@@ -48,6 +48,12 @@ it('shows version progress for the set', async () => {
   expect(screen.getByText('Master set · 0 of 11 collected')).toBeOnTheScreen();
 });
 
+it('leaves the set name to the navigation title (no second in-content title)', async () => {
+  await open();
+  expect(screen.queryByText('Fixture Set')).toBeNull();
+  expect(screen.getByText('Master set · 0 of 11 collected')).toBeOnTheScreen();
+});
+
 it('updates progress and the dot when a dot is tapped', async () => {
   await open();
   await fireEvent.press(screen.getByRole('button', { name: 'Bulbasaur 001, Normal, 0 owned' }));
