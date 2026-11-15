@@ -1,0 +1,20 @@
+id: sv03.5
+source:
+  tcgdex: sv03.5
+name: "151"
+series: Scarlet & Violet
+releaseDate: "2023-09-22"
+categories:
+  - id: main
+    kind: main
+    label: Main set
+  - id: promos
+    kind: promo_stamped
+    label: Promos & stamped
+categoryRules: []
+versionRules:
+  - match:
+      rarity: [Common, Uncommon]
+    versions: [normal, reverse, pokeball, masterball]
+  - match: {}
+    versions: [single]
