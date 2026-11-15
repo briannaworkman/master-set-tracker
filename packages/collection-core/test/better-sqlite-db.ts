@@ -9,5 +9,6 @@ export function createBetterSqliteDb(): SqlDb & { raw: Database.Database } {
     run: (sql, params = []) => void raw.prepare(sql).run(...params),
     all: <T>(sql: string, params: unknown[] = []) => raw.prepare(sql).all(...params) as T[],
     first: <T>(sql: string, params: unknown[] = []) => (raw.prepare(sql).get(...params) as T | undefined) ?? null,
+    transaction: <T>(fn: () => T) => raw.transaction(fn)(),
   };
 }

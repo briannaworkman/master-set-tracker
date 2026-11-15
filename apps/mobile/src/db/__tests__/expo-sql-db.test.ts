@@ -16,6 +16,11 @@ function fakeDb() {
       calls.push(['first', sql, params]);
       return null as T | null;
     },
+    withTransactionSync: (task) => {
+      calls.push(['begin']);
+      task();
+      calls.push(['commit']);
+    },
   };
   return { db, calls };
 }
@@ -34,5 +39,28 @@ describe('createExpoSqlDb', () => {
       ['all', 'SELECT n FROM t', []],
       ['first', 'SELECT n FROM t WHERE n = ?', [2]],
     ]);
+  });
+});
+
+describe('createExpoSqlDb transaction', () => {
+  it('runs the callback inside withTransactionSync and returns its result', () => {
+    const { db, calls } = fakeDb();
+    const sql = createExpoSqlDb(db);
+    const out = sql.transaction(() => {
+      sql.run('INSERT INTO t VALUES (?)', [1]);
+      return 42;
+    });
+    expect(out).toBe(42);
+    expect(calls).toEqual([['begin'], ['run', 'INSERT INTO t VALUES (?)', [1]], ['commit']]);
+  });
+
+  it('propagates an error from the callback', () => {
+    const { db } = fakeDb();
+    const sql = createExpoSqlDb(db);
+    expect(() =>
+      sql.transaction(() => {
+        throw new Error('boom');
+      }),
+    ).toThrow('boom');
   });
 });

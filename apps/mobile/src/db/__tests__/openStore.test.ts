@@ -15,6 +15,7 @@ function sqliteBackedExpoDb(): ExpoSyncDatabase {
     runSync: (sql, params) => db.prepare(sql).run(...params),
     getAllSync: <T,>(sql: string, params: unknown[]) => db.prepare(sql).all(...params) as T[],
     getFirstSync: <T,>(sql: string, params: unknown[]) => (db.prepare(sql).get(...params) as T | undefined) ?? null,
+    withTransactionSync: (task) => db.transaction(task)(),
   };
 }
 

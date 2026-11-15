@@ -17,11 +17,18 @@ CREATE TABLE IF NOT EXISTS collection (
 CREATE INDEX IF NOT EXISTS collection_set_idx ON collection (set_id);
 `;
 
+/** Step N upgrades a database at user_version N-1 to N. Each step runs in its own transaction. */
+const STEPS: Array<(db: SqlDb) => void> = [(db) => db.exec(SCHEMA_V1)];
+
 export function migrate(db: SqlDb): void {
   const row = db.first<{ user_version: number }>('PRAGMA user_version');
   const version = row?.user_version ?? 0;
-  if (version < 1) {
-    db.exec(SCHEMA_V1);
-    db.exec('PRAGMA user_version = 1');
-  }
+  STEPS.forEach((step, i) => {
+    const target = i + 1;
+    if (version >= target) return;
+    db.transaction(() => {
+      step(db);
+      db.exec(`PRAGMA user_version = ${target}`);
+    });
+  });
 }

@@ -5,6 +5,8 @@ export interface SqlDb {
   run(sql: string, params?: unknown[]): void;
   all<T>(sql: string, params?: unknown[]): T[];
   first<T>(sql: string, params?: unknown[]): T | null;
+  /** Runs `fn` inside BEGIN/COMMIT; rolls back and rethrows if it throws. Not reentrant. */
+  transaction<T>(fn: () => T): T;
 }
 
 export interface TrackedSet {
