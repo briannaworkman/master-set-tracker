@@ -1,5 +1,5 @@
 import type { CatalogCard, SetCategory, VersionKind } from '@mst/catalog-core';
-import { filterCards, type Counts, type Filter } from '@mst/collection-core';
+import type { Counts } from '@mst/collection-core';
 import { useMemo, type ReactElement } from 'react';
 import { SectionList, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -24,7 +24,7 @@ export function SetGrid({
   sections,
   counts,
   kindsById,
-  filter,
+  visibleIds,
   header,
   emptyText,
   onTapVersion,
@@ -34,7 +34,11 @@ export function SetGrid({
   sections: GridSection[];
   counts: Counts;
   kindsById: Record<string, VersionKind>;
-  filter: Filter;
+  /**
+   * Cards to show, or null for every card. A snapshot taken by the screen, not derived from
+   * live counts, so a tile never vanishes from under the finger while marking.
+   */
+  visibleIds: ReadonlySet<string> | null;
   header?: ReactElement;
   emptyText: string;
   onTapVersion(cardId: string, kind: string): void;
@@ -50,13 +54,13 @@ export function SetGrid({
     () =>
       sections
         .map(({ category, cards }) => {
-          const shown = filterCards(cards, counts, filter);
+          const shown = visibleIds ? cards.filter((c) => visibleIds.has(c.id)) : cards;
           const rows: CatalogCard[][] = [];
           for (let i = 0; i < shown.length; i += PER_ROW) rows.push(shown.slice(i, i + PER_ROW));
           return { category, data: rows };
         })
         .filter((s) => s.data.length > 0),
-    [sections, counts, filter],
+    [sections, visibleIds],
   );
 
   return (

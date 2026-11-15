@@ -1,18 +1,57 @@
-import { legendKinds, setProgress, setValue, versionKey, visibleSections, type Filter } from '@mst/collection-core';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
+import {
+  filterCards,
+  legendKinds,
+  setProgress,
+  setValue,
+  versionKey,
+  visibleSections,
+  type Counts,
+  type Filter,
+} from '@mst/collection-core';
+import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useCatalog } from '../../../src/catalog/CatalogContext';
 import { CountPopover } from '../../../src/components/CountPopover';
 import { FilterSwitch } from '../../../src/components/FilterSwitch';
 import { Legend } from '../../../src/components/Legend';
-import { SetGrid } from '../../../src/components/SetGrid';
+import { SetGrid, type GridSection } from '../../../src/components/SetGrid';
 import { SetHeader } from '../../../src/components/SetHeader';
 import { useCounts, useStore, useTracked } from '../../../src/db/StoreContext';
 import { usePriceBook } from '../../../src/prices/PriceContext';
 import { useTheme } from '../../../src/theme/useTheme';
 
 const NO_HIDDEN: string[] = [];
+
+/**
+ * Sticky filter membership: the cards matching a filter are snapshotted when a segment is
+ * pressed (including the selected one again) or the screen regains focus, and only then.
+ * Tiles keep rendering live counts, so marking a card's last missing version shows its ✓
+ * instead of pulling the tile out from under the finger.
+ */
+function useStickyFilter(sections: GridSection[], counts: Counts) {
+  const [filter, setFilter] = useState<Filter>('all');
+  const [visibleIds, setVisibleIds] = useState<ReadonlySet<string> | null>(null);
+  const latest = useRef({ sections, counts, filter });
+  latest.current = { sections, counts, filter };
+
+  const snapshot = useCallback((f: Filter) => {
+    const { sections: secs, counts: c } = latest.current;
+    setVisibleIds(f === 'all' ? null : new Set(secs.flatMap((s) => filterCards(s.cards, c, f)).map((card) => card.id)));
+  }, []);
+
+  const changeFilter = useCallback(
+    (f: Filter) => {
+      setFilter(f);
+      snapshot(f);
+    },
+    [snapshot],
+  );
+
+  useFocusEffect(useCallback(() => snapshot(latest.current.filter), [snapshot]));
+
+  return { filter, visibleIds, changeFilter };
+}
 
 export default function SetScreen() {
   const { id: rawId } = useLocalSearchParams<{ id: string }>();
@@ -24,13 +63,13 @@ export default function SetScreen() {
   const tracked = useTracked();
   const counts = useCounts(id);
   const prices = usePriceBook();
-  const [filter, setFilter] = useState<Filter>('all');
   const [editing, setEditing] = useState<{ cardId: string; kind: string } | null>(null);
 
   const set = catalog.getSet(id);
   const hidden = tracked.find((t) => t.setId === id)?.hiddenCategoryIds ?? NO_HIDDEN;
   const kindsById = useMemo(() => Object.fromEntries(catalog.kinds.map((k) => [k.id, k])), [catalog]);
   const sections = useMemo(() => (set ? visibleSections(set, hidden) : []), [set, hidden]);
+  const { filter, visibleIds, changeFilter } = useStickyFilter(sections, counts);
 
   if (!set) {
     return (
@@ -59,7 +98,7 @@ export default function SetScreen() {
   const header = (
     <View style={styles.header}>
       <SetHeader name={set.name} collected={collected} total={total} value={value} />
-      <FilterSwitch value={filter} onChange={setFilter} />
+      <FilterSwitch value={filter} onChange={changeFilter} />
       <Legend kinds={legendKinds(set, catalog.kinds)} />
     </View>
   );
@@ -86,7 +125,7 @@ export default function SetScreen() {
         sections={sections}
         counts={counts}
         kindsById={kindsById}
-        filter={filter}
+        visibleIds={visibleIds}
         header={header}
         emptyText={emptyText}
         onTapVersion={(cardId, kind) => store.tap(id, cardId, kind)}

@@ -5,12 +5,25 @@ import { TestProviders } from '../test/TestProviders';
 
 const mockPush = jest.fn();
 const mockBack = jest.fn();
+const mockRouter = { push: mockPush, back: mockBack };
 let mockId = 'fx';
-jest.mock('expo-router', () => ({
-  useRouter: () => ({ push: mockPush, back: mockBack }),
-  useLocalSearchParams: () => ({ id: mockId }),
-  Stack: { Screen: () => null },
-}));
+/** Focus callbacks registered by mounted screens; call them to simulate the screen regaining focus. */
+const mockFocusCallbacks = new Set<() => void>();
+jest.mock('expo-router', () => {
+  const { useEffect } = jest.requireActual('react');
+  return {
+    useRouter: () => mockRouter,
+    useLocalSearchParams: () => ({ id: mockId }),
+    Stack: { Screen: () => null },
+    useFocusEffect: (cb: () => void) =>
+      useEffect(() => {
+        mockFocusCallbacks.add(cb);
+        cb();
+        return () => void mockFocusCallbacks.delete(cb);
+      }, [cb]),
+  };
+});
+const refocus = () => act(async () => mockFocusCallbacks.forEach((cb) => cb()));
 jest.mock('expo-haptics', () => ({ selectionAsync: jest.fn() }));
 
 const newStore = () => new CollectionStore(createMemoryRepo());
@@ -108,4 +121,46 @@ it('handles an unknown set id', async () => {
   expect(screen.getByText("This set isn't available")).toBeOnTheScreen();
   await fireEvent.press(screen.getByRole('button', { name: 'Back' }));
   expect(mockBack).toHaveBeenCalled();
+});
+
+describe('sticky filter membership', () => {
+  const venusaurEx = /^Open Venusaur ex 004/;
+
+  it('keeps a card under Missing after its last dot is filled, so a second tap marks the same card', async () => {
+    const store = await open();
+    await fireEvent.press(screen.getByRole('button', { name: 'Missing' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Venusaur ex 004, Single, 0 owned' }));
+    expect(screen.getByRole('button', { name: 'Open Venusaur ex 004, complete' })).toBeOnTheScreen();
+    await fireEvent.press(screen.getByRole('button', { name: 'Venusaur ex 004, Single, 1 owned' }));
+    expect(store.getCounts('fx')).toEqual({ 'c-004:single': 2 });
+  });
+
+  it('drops completed cards when the Missing segment is pressed again', async () => {
+    await open();
+    await fireEvent.press(screen.getByRole('button', { name: 'Missing' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Venusaur ex 004, Single, 0 owned' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Missing' }));
+    expect(screen.queryByRole('button', { name: venusaurEx })).toBeNull();
+    expect(screen.getByRole('button', { name: /^Open Bulbasaur 001/ })).toBeOnTheScreen();
+  });
+
+  it('re-evaluates membership when the screen regains focus', async () => {
+    await open();
+    await fireEvent.press(screen.getByRole('button', { name: 'Missing' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Venusaur ex 004, Single, 0 owned' }));
+    expect(screen.getByRole('button', { name: venusaurEx })).toBeOnTheScreen();
+    await refocus();
+    expect(screen.queryByRole('button', { name: venusaurEx })).toBeNull();
+  });
+
+  it('keeps a card under Have after its count drops to zero until re-evaluated', async () => {
+    const store = newStore();
+    store.setCount('fx', 'c-004', 'single', 1);
+    await open(store);
+    await fireEvent.press(screen.getByRole('button', { name: 'Have' }));
+    await act(async () => store.setCount('fx', 'c-004', 'single', 0));
+    expect(screen.getByRole('button', { name: venusaurEx })).toBeOnTheScreen();
+    await fireEvent.press(screen.getByRole('button', { name: 'Have' }));
+    expect(screen.getByText('Nothing here yet')).toBeOnTheScreen();
+  });
 });

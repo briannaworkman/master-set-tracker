@@ -13,6 +13,7 @@ jest.mock('expo-router', () => ({
   useRouter: () => ({ push: jest.fn(), back: jest.fn(), replace: mockReplace, dismissAll: mockDismissAll }),
   useLocalSearchParams: () => mockParams,
   Stack: { Screen: () => null },
+  useFocusEffect: (cb: () => void) => jest.requireActual('react').useEffect(cb, [cb]),
 }));
 jest.mock('expo-haptics', () => ({ selectionAsync: jest.fn() }));
 
