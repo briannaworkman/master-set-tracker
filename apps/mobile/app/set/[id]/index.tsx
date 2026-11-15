@@ -71,7 +71,33 @@ export default function SetScreen() {
   const sections = useMemo(() => (set ? visibleSections(set, hidden) : []), [set, hidden]);
   const { filter, visibleIds, changeFilter } = useStickyFilter(sections, counts);
 
-  if (!set) {
+  // Stable handlers and derived values: a tap re-renders only the tapped tile.
+  const onTapVersion = useCallback((cardId: string, kind: string) => store.tap(id, cardId, kind), [store, id]);
+  const onLongPressVersion = useCallback((cardId: string, kind: string) => setEditing({ cardId, kind }), []);
+  const onOpenCard = useCallback((cardId: string) => router.push(`/set/${id}/card/${cardId}`), [router, id]);
+  const legend = useMemo(() => (set ? legendKinds(set, catalog.kinds) : []), [set, catalog.kinds]);
+  const progress = useMemo(() => (set ? setProgress(set, counts, hidden) : null), [set, counts, hidden]);
+  const value = useMemo(() => (set ? setValue(set, counts, hidden, prices) : null), [set, counts, hidden, prices]);
+  const setName = set?.name;
+  const screenOptions = useMemo(
+    () => ({
+      title: setName,
+      headerRight: () => (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Set settings"
+          hitSlop={8}
+          onPress={() => router.push(`/set/${id}/settings`)}
+          style={styles.menu}
+        >
+          <Text style={[styles.menuText, { color: theme.text }]}>⋯</Text>
+        </Pressable>
+      ),
+    }),
+    [setName, id, theme, router],
+  );
+
+  if (!set || !progress || !value) {
     return (
       <View style={[styles.missing, { backgroundColor: theme.bg }]}>
         <Text style={[styles.missingText, { color: theme.text }]}>This set isn't available</Text>
@@ -87,8 +113,7 @@ export default function SetScreen() {
     );
   }
 
-  const { collected, total } = setProgress(set, counts, hidden);
-  const value = setValue(set, counts, hidden, prices);
+  const { collected, total } = progress;
   const emptyText =
     filter === 'missing' && total > 0 && collected === total ? 'You have every version 🎉' : 'Nothing here yet';
 
@@ -99,28 +124,13 @@ export default function SetScreen() {
     <View style={styles.header}>
       <SetHeader name={set.name} collected={collected} total={total} value={value} />
       <FilterSwitch value={filter} onChange={changeFilter} />
-      <Legend kinds={legendKinds(set, catalog.kinds)} />
+      <Legend kinds={legend} />
     </View>
   );
 
   return (
     <View style={[styles.screen, { backgroundColor: theme.bg }]}>
-      <Stack.Screen
-        options={{
-          title: set.name,
-          headerRight: () => (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Set settings"
-              hitSlop={8}
-              onPress={() => router.push(`/set/${id}/settings`)}
-              style={styles.menu}
-            >
-              <Text style={[styles.menuText, { color: theme.text }]}>⋯</Text>
-            </Pressable>
-          ),
-        }}
-      />
+      <Stack.Screen options={screenOptions} />
       <SetGrid
         sections={sections}
         counts={counts}
@@ -128,9 +138,9 @@ export default function SetScreen() {
         visibleIds={visibleIds}
         header={header}
         emptyText={emptyText}
-        onTapVersion={(cardId, kind) => store.tap(id, cardId, kind)}
-        onLongPressVersion={(cardId, kind) => setEditing({ cardId, kind })}
-        onOpenCard={(cardId) => router.push(`/set/${id}/card/${cardId}`)}
+        onTapVersion={onTapVersion}
+        onLongPressVersion={onLongPressVersion}
+        onOpenCard={onOpenCard}
       />
       <CountPopover
         visible={editing !== null}

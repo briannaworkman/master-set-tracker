@@ -1,9 +1,10 @@
 import type { VersionKind } from '@mst/catalog-core';
 import { LinearGradient } from 'expo-linear-gradient';
+import { memo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useTheme } from '../theme/useTheme';
 
-export function Legend({ kinds }: { kinds: VersionKind[] }) {
+export const Legend = memo(function Legend({ kinds }: { kinds: VersionKind[] }) {
   const theme = useTheme();
   return (
     <View style={styles.row} accessibilityLabel="Legend">
@@ -28,7 +29,7 @@ export function Legend({ kinds }: { kinds: VersionKind[] }) {
       </View>
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },

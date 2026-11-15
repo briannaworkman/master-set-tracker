@@ -1,4 +1,5 @@
 import type { Filter } from '@mst/collection-core';
+import { memo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useTheme } from '../theme/useTheme';
 
@@ -9,7 +10,13 @@ const SEGMENTS: Array<{ value: Filter; label: string }> = [
   { value: 'spares', label: 'Spares' },
 ];
 
-export function FilterSwitch({ value, onChange }: { value: Filter; onChange(filter: Filter): void }) {
+export const FilterSwitch = memo(function FilterSwitch({
+  value,
+  onChange,
+}: {
+  value: Filter;
+  onChange(filter: Filter): void;
+}) {
   const theme = useTheme();
   return (
     <View style={[styles.row, { backgroundColor: theme.border }]}>
@@ -30,7 +37,7 @@ export function FilterSwitch({ value, onChange }: { value: Filter; onChange(filt
       })}
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', borderRadius: 10, padding: 2 },

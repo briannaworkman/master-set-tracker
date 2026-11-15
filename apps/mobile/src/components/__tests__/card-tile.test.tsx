@@ -33,7 +33,7 @@ it('renders one dot per version in catalog order', async () => {
 it('taps a dot to add one', async () => {
   const { props } = await tile();
   await fireEvent.press(screen.getByRole('button', { name: 'Bulbasaur 001, Reverse Holo, 0 owned' }));
-  expect(props.onTapVersion).toHaveBeenCalledWith('reverse');
+  expect(props.onTapVersion).toHaveBeenCalledWith('c-001', 'reverse');
   expect(Haptics.selectionAsync).toHaveBeenCalled();
 });
 
@@ -51,7 +51,7 @@ it('does not fire a haptic when the count is already at the 999 cap', async () =
 it('long-presses a dot to open the counter', async () => {
   const { props } = await tile();
   await fireEvent(screen.getByRole('button', { name: /Normal, 0 owned$/ }), 'longPress');
-  expect(props.onLongPressVersion).toHaveBeenCalledWith('normal');
+  expect(props.onLongPressVersion).toHaveBeenCalledWith('c-001', 'normal');
 });
 
 it('shows a count badge for spares', async () => {

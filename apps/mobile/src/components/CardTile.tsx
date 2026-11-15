@@ -1,12 +1,39 @@
 import type { CatalogCard, VersionKind } from '@mst/catalog-core';
 import { cardStatus, versionKey, type Counts } from '@mst/collection-core';
 import { Image } from 'expo-image';
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useTheme } from '../theme/useTheme';
 import { VersionDot } from './VersionDot';
 
-export function CardTile({
+export interface CardTileProps {
+  card: CatalogCard;
+  kindsById: Record<string, VersionKind>;
+  /** The whole set's counts; the tile only re-renders when its own versions' counts change. */
+  counts: Counts;
+  width: number;
+  /** Pass stable callbacks: a new function identity re-renders every tile. */
+  onTapVersion(cardId: string, kind: string): void;
+  onLongPressVersion(cardId: string, kind: string): void;
+  onOpenCard(cardId: string): void;
+}
+
+function sameTile(a: CardTileProps, b: CardTileProps): boolean {
+  return (
+    a.card === b.card &&
+    a.width === b.width &&
+    a.kindsById === b.kindsById &&
+    a.onTapVersion === b.onTapVersion &&
+    a.onLongPressVersion === b.onLongPressVersion &&
+    a.onOpenCard === b.onOpenCard &&
+    a.card.versions.every((v) => {
+      const key = versionKey(a.card.id, v.kind);
+      return (a.counts[key] ?? 0) === (b.counts[key] ?? 0);
+    })
+  );
+}
+
+export const CardTile = memo(function CardTile({
   card,
   kindsById,
   counts,
@@ -14,15 +41,7 @@ export function CardTile({
   onTapVersion,
   onLongPressVersion,
   onOpenCard,
-}: {
-  card: CatalogCard;
-  kindsById: Record<string, VersionKind>;
-  counts: Counts;
-  width: number;
-  onTapVersion(kind: string): void;
-  onLongPressVersion(kind: string): void;
-  onOpenCard(): void;
-}) {
+}: CardTileProps) {
   const theme = useTheme();
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const status = cardStatus(card, counts);
@@ -33,7 +52,7 @@ export function CardTile({
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`Open ${card.name} ${card.number}${status === 'complete' ? ', complete' : ''}`}
-        onPress={onOpenCard}
+        onPress={() => onOpenCard(card.id)}
         style={{ height: imageHeight }}
       >
         {showImage ? (
@@ -73,8 +92,8 @@ export function CardTile({
               key={v.kind}
               kind={kind}
               count={count}
-              onTap={() => onTapVersion(v.kind)}
-              onLongPress={() => onLongPressVersion(v.kind)}
+              onTap={() => onTapVersion(card.id, v.kind)}
+              onLongPress={() => onLongPressVersion(card.id, v.kind)}
               accessibilityLabel={`${card.name} ${card.number}, ${kind.label}, ${count} owned`}
             />
           );
@@ -82,7 +101,7 @@ export function CardTile({
       </View>
     </View>
   );
-}
+}, sameTile);
 
 const styles = StyleSheet.create({
   tile: { borderRadius: 12, borderWidth: 1, padding: 6 },

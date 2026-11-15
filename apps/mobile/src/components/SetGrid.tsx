@@ -66,6 +66,7 @@ export function SetGrid({
   return (
     <SectionList
       sections={rowSections}
+      extraData={counts}
       keyExtractor={(row) => row[0]!.id}
       ListHeaderComponent={header}
       ListEmptyComponent={<Text style={[styles.empty, { color: theme.muted }]}>{emptyText}</Text>}
@@ -87,9 +88,9 @@ export function SetGrid({
               kindsById={kindsById}
               counts={counts}
               width={tileWidth}
-              onTapVersion={(kind) => onTapVersion(card.id, kind)}
-              onLongPressVersion={(kind) => onLongPressVersion(card.id, kind)}
-              onOpenCard={() => onOpenCard(card.id)}
+              onTapVersion={onTapVersion}
+              onLongPressVersion={onLongPressVersion}
+              onOpenCard={onOpenCard}
             />
           ))}
         </View>
