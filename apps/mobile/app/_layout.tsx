@@ -59,7 +59,7 @@ function SessionError({ theme }: { theme: Theme }) {
     if (busy) return;
     setBusy(true);
     setFailed(false);
-    const ok = await endAuthSession(getSupabase(), 'local');
+    const ok = await endAuthSession(getSupabase());
     // On success this screen is replaced by sign-in.
     if (!ok) {
       setBusy(false);

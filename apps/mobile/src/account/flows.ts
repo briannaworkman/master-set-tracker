@@ -19,8 +19,6 @@ export function identityText(email: string | null, provider: string | null): str
 
 /** How long sign-out waits for its final sync before checking what is still unsynced. */
 export const SIGN_OUT_SYNC_TIMEOUT_MS = 15_000;
-/** How long the server sign-out (refresh-token revocation) may take before signing out locally. */
-export const GLOBAL_SIGN_OUT_TIMEOUT_MS = 10_000;
 
 /** "<n> changes haven't synced yet and will be lost. Sign out anyway?" (singular for one). */
 export function unsyncedWarning(n: number): string {
@@ -60,38 +58,28 @@ export function confirmDestructive(title: string, message: string | undefined, a
 
 type AuthClient = { auth: Pick<SupabaseClient['auth'], 'signOut' | 'getSession'> };
 
-/** True when the client no longer holds a session (this device is signed out). */
+/**
+ * True when the client no longer holds a session (this device is signed out). getSession reports
+ * { session: null, error } when a refresh failed retryably but the session is still stored, so
+ * only a null session with no error counts.
+ */
 async function sessionGone(client: AuthClient): Promise<boolean> {
   try {
-    const { data } = await client.auth.getSession();
-    return data.session === null;
+    const { data, error } = await client.auth.getSession();
+    return !error && data.session === null;
   } catch {
     return false;
   }
 }
 
 /**
- * Ends the Supabase session. `global` first revokes the refresh token on the server; if that fails
- * (offline, server error) or takes over GLOBAL_SIGN_OUT_TIMEOUT_MS, the session is cleared on this
- * device with scope 'local'. auth-js's local sign-out removes the stored session (firing
- * SIGNED_OUT) before its own revoke request, and still reports that request's failure (e.g.
- * offline) as an error, so an error with no stored session left counts as signed out.
- * Resolves false only if this device is still signed in.
+ * Signs this device out with signOut({ scope: 'local' }): other devices signed in to the same
+ * account stay signed in. auth-js removes the stored session first (firing SIGNED_OUT), then
+ * revokes this device's refresh token on the server; it reports a failed revoke (e.g. offline)
+ * as an error even though the device is already signed out, so an error with no session left
+ * counts as success. Resolves false only if this device is still signed in.
  */
-export async function endAuthSession(client: AuthClient, scope: 'global' | 'local'): Promise<boolean> {
-  if (scope === 'global') {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const timedOut = new Promise<false>((resolve) => {
-      timer = setTimeout(() => resolve(false), GLOBAL_SIGN_OUT_TIMEOUT_MS);
-    });
-    const signedOut = client.auth.signOut().then(
-      ({ error }) => !error,
-      () => false,
-    );
-    const ok = await Promise.race([signedOut, timedOut]);
-    clearTimeout(timer);
-    if (ok) return true;
-  }
+export async function endAuthSession(client: AuthClient): Promise<boolean> {
   try {
     const { error } = await client.auth.signOut({ scope: 'local' });
     if (!error) return true;
@@ -112,9 +100,10 @@ export interface FlowDeps {
 
 /**
  * Sign out: sync (if online; at most SIGN_OUT_SYNC_TIMEOUT_MS) → if changes remain unsynced,
- * confirm → stop the engine → wipe local data → sign out. A failed wipe changes nothing (the
- * session's engine is restarted) and returns the sign-out error. A failed or slow server sign-out
- * after the wipe still signs out locally; if even that fails the session is restarted.
+ * confirm → stop the engine → wipe local data → sign this device out (endAuthSession). A failed
+ * wipe changes nothing (the session's engine is restarted) and returns the sign-out error. From
+ * the wipe until the sign-out completes no app route is shown (SyncSession.endSession); if this
+ * device is still signed in afterwards the session is restarted.
  */
 export async function signOutFlow(client: AuthClient, { session, syncNow, confirm }: FlowDeps): Promise<FlowResult> {
   // The engine resolves at once while offline, and never rejects.
@@ -126,7 +115,7 @@ export async function signOutFlow(client: AuthClient, { session, syncNow, confir
   } catch {
     return { error: SIGN_OUT_ERROR };
   }
-  if ((await endAuthSession(client, 'global')) || !session.isSignedIn()) return 'done';
+  if ((await endAuthSession(client)) || !session.isSignedIn()) return 'done';
   // Still signed in on this device: bring the (now empty) session back so it pulls from the server.
   session.restart();
   return { error: SIGN_OUT_ERROR };
@@ -154,7 +143,7 @@ export async function deleteAccountFlow(
   } catch {
     // The account is gone. Anything left locally is wiped by the next sign-in's owner check.
   }
-  if ((await endAuthSession(client, 'local')) || !session.isSignedIn()) return 'done';
+  if ((await endAuthSession(client)) || !session.isSignedIn()) return 'done';
   // Still signed in on this device: reopen the app rather than leave it closed.
   session.restart();
   return { error: SIGN_OUT_ERROR };

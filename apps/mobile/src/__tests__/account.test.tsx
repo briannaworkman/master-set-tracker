@@ -6,7 +6,7 @@ import { AuthRetryableFetchError } from '@supabase/supabase-js';
 import { useState, type ReactNode } from 'react';
 import { AccessibilityInfo, Alert, AppState, Text } from 'react-native';
 import AccountScreen from '../../app/account';
-import { GLOBAL_SIGN_OUT_TIMEOUT_MS, SIGN_OUT_SYNC_TIMEOUT_MS } from '../account/flows';
+import { SIGN_OUT_SYNC_TIMEOUT_MS } from '../account/flows';
 import HomeScreen from '../../app/index';
 import { signedOutState, type AuthState } from '../auth/AuthProvider';
 import { useTracked } from '../db/StoreContext';
@@ -23,10 +23,15 @@ jest.mock('expo-router', () => ({
 
 /** Whether the client still has a stored session (what auth.getSession() reports). */
 let mockStoredSession = true;
+/** An error getSession reports alongside the session (e.g. a retryable refresh failure). */
+let mockSessionError: Error | null = null;
 const mockClient = {
   auth: {
     signOut: jest.fn(),
-    getSession: jest.fn(async () => ({ data: { session: mockStoredSession ? { access_token: 'jwt' } : null }, error: null })),
+    getSession: jest.fn(async () => ({
+      data: { session: mockStoredSession ? { access_token: 'jwt' } : null },
+      error: mockSessionError,
+    })),
   },
   functions: { invoke: jest.fn() },
 };
@@ -66,6 +71,7 @@ beforeEach(() => {
     return { remove: () => appListeners.delete(h) };
   }) as never);
   mockStoredSession = true;
+  mockSessionError = null;
   mockClient.auth.signOut.mockReset().mockImplementation(async () => {
     mockStoredSession = false;
     setAuth(signedOutState);
@@ -159,14 +165,12 @@ const slowFailure = () =>
 const offlineError = () => new AuthRetryableFetchError('Network request failed', 0);
 
 /**
- * auth-js offline: 'global' fails and keeps the session; 'local' removes the session and fires
- * SIGNED_OUT first, then still awaits the revoke request, which fails, so it resolves { error }.
+ * auth-js offline with scope 'local': removes the session and fires SIGNED_OUT first, then still
+ * awaits the revoke request, which fails, so it resolves { error }.
  */
-async function authJsOfflineSignOut(opts?: { scope?: string }) {
-  if (opts?.scope === 'local') {
-    mockStoredSession = false;
-    setAuth(signedOutState);
-  }
+async function authJsOfflineSignOut() {
+  mockStoredSession = false;
+  setAuth(signedOutState);
   return { error: offlineError() };
 }
 
@@ -248,7 +252,8 @@ describe('sign out', () => {
     expect(env.server.snapshot().collection.map((r) => r.cardId).sort()).toEqual(['c-001', 'c-002']);
     expect(wipe).toHaveBeenCalledTimes(1);
     expect(order).toEqual(['wipe after stop', 'signOut']);
-    expect(mockClient.auth.signOut).toHaveBeenCalledWith();
+    expect(mockClient.auth.signOut).toHaveBeenCalledTimes(1);
+    expect(mockClient.auth.signOut).toHaveBeenCalledWith({ scope: 'local' });
     expect(env.store.getTracked()).toEqual([]);
     expect(env.repo.countsForSet('fx')).toEqual({});
     expect(env.repo.getSyncState()).toEqual({ cursor: 0, lastSyncedAt: null });
@@ -325,22 +330,47 @@ describe('sign out', () => {
     errors.mockRestore();
   });
 
-  it('still signs out locally when the server sign-out fails after the wipe', async () => {
+  it("signs out only this device: the same account's session on another device is untouched", async () => {
     const env = setup();
     env.store.track('fx');
     await renderApp(env);
+    // The server's refresh-token sessions for user A; 'global' would revoke them all (auth-js default).
+    const serverSessions = new Set(['this-device', 'other-device']);
     mockClient.auth.signOut.mockImplementation(async (opts?: { scope?: string }) => {
-      if (opts?.scope !== 'local') return { error: new Error('Network request failed') };
+      const scope = opts?.scope ?? 'global';
+      mockStoredSession = false;
       setAuth(signedOutState);
+      if (scope === 'local') serverSessions.delete('this-device');
+      else if (scope === 'global') serverSessions.clear();
+      else serverSessions.forEach((s) => s !== 'this-device' && serverSessions.delete(s));
       return { error: null };
     });
 
     await press('Sign out');
 
-    expect(mockClient.auth.signOut).toHaveBeenNthCalledWith(1);
-    expect(mockClient.auth.signOut).toHaveBeenNthCalledWith(2, { scope: 'local' });
+    expect(mockClient.auth.signOut).toHaveBeenCalledTimes(1);
+    expect(mockClient.auth.signOut).toHaveBeenCalledWith({ scope: 'local' });
+    expect([...serverSessions]).toEqual(['other-device']);
     expect(env.store.getTracked()).toEqual([]);
     expect(screen.getByText('gate: signedOut')).toBeOnTheScreen();
+  });
+
+  it('a failed sign-out with the session still stored (getSession reports an error) is not a sign-out', async () => {
+    const env = setup();
+    await renderApp(env);
+    // A retryable refresh failure: getSession reports no session plus the error, but auth-js has
+    // kept the session in storage, so this device is still signed in.
+    mockClient.auth.signOut.mockImplementation(async () => {
+      mockStoredSession = false;
+      mockSessionError = offlineError();
+      return slowFailure();
+    });
+    jest.spyOn(Alert, 'alert');
+    const restart = jest.spyOn(session, 'restart');
+    await press('Sign out');
+    await advance(100);
+    expect(restart).toHaveBeenCalled();
+    expect(Alert.alert).toHaveBeenCalledWith("Couldn't sign out. Try again.");
   });
 
   it('does not wait forever for a sync that hangs', async () => {
@@ -403,23 +433,6 @@ describe('sign out', () => {
     expect(env.serverB.snapshot()).toEqual({ collection: [], tracked: [] });
   });
 
-  it('gives a hung server sign-out 10 s, then signs out on this device', async () => {
-    const env = setup();
-    await renderApp(env);
-    mockClient.auth.signOut.mockImplementation(async (opts?: { scope?: string }) => {
-      if (opts?.scope !== 'local') return new Promise(() => {});
-      setAuth(signedOutState);
-      return { error: null };
-    });
-    await press('Sign out');
-    expect(mockClient.auth.signOut).toHaveBeenCalledTimes(1);
-    await advance(GLOBAL_SIGN_OUT_TIMEOUT_MS - 1);
-    expect(mockClient.auth.signOut).toHaveBeenCalledTimes(1);
-    await advance(1);
-    expect(mockClient.auth.signOut).toHaveBeenLastCalledWith({ scope: 'local' });
-    expect(screen.getByText('gate: signedOut')).toBeOnTheScreen();
-  });
-
   it('restarts the session and alerts when even the local sign-out fails after the wipe', async () => {
     const env = setup();
     await renderApp(env);
@@ -427,8 +440,8 @@ describe('sign out', () => {
     jest.spyOn(Alert, 'alert');
     await press('Sign out');
     expect(screen.getByText('gate: loading')).toBeOnTheScreen(); // wiped: the Account screen is gone
-    await advance(100); // the server sign-out fails, then the local one
-    await advance(100);
+    await advance(100); // the local sign-out fails and the session is still stored
+    expect(mockClient.auth.signOut).toHaveBeenCalledTimes(1);
     expect(Alert.alert).toHaveBeenCalledWith("Couldn't sign out. Try again.");
     expect(screen.getByText('a@example.com')).toBeOnTheScreen(); // back in the app
     expect(session.engine).not.toBeNull();
@@ -462,8 +475,8 @@ describe('sign out', () => {
     await pressAlert('Sign out'); // the offline track is unsynced
     await advance(1000);
 
-    expect(mockClient.auth.signOut).toHaveBeenNthCalledWith(1);
-    expect(mockClient.auth.signOut).toHaveBeenNthCalledWith(2, { scope: 'local' });
+    expect(mockClient.auth.signOut).toHaveBeenCalledTimes(1);
+    expect(mockClient.auth.signOut).toHaveBeenCalledWith({ scope: 'local' });
     expect(Alert.alert).toHaveBeenCalledTimes(1); // only the unsynced-changes warning
     expect(restart).not.toHaveBeenCalled();
     expect(screen.getByText('gate: signedOut')).toBeOnTheScreen();
@@ -474,8 +487,7 @@ describe('sign out', () => {
   it('does not restart or alert when the auth state is already signed out, even if the session check lags', async () => {
     const env = setup();
     await renderApp(env);
-    mockClient.auth.signOut.mockImplementation(async (opts?: { scope?: string }) => {
-      if (opts?.scope !== 'local') return { error: offlineError() };
+    mockClient.auth.signOut.mockImplementation(async () => {
       setAuth(signedOutState); // SIGNED_OUT fired; the stored session still reads as present
       return new Promise((resolve) => setTimeout(() => resolve({ error: offlineError() }), 100));
     });
