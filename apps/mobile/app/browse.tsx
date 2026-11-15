@@ -50,6 +50,8 @@ export default function BrowseScreen() {
       <FlatList
         data={catalog.listSets()}
         keyExtractor={(s) => s.id}
+        contentContainerStyle={styles.list}
+        ListEmptyComponent={<Text style={[styles.empty, { color: theme.muted }]}>No sets available yet</Text>}
         renderItem={({ item }) => (
           <BrowseRow
             set={item}
@@ -67,6 +69,8 @@ export default function BrowseScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
+  list: { flexGrow: 1 },
+  empty: { fontSize: 17, textAlign: 'center', padding: 32 },
   row: { height: 72, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, gap: 12, borderBottomWidth: StyleSheet.hairlineWidth },
   body: { flex: 1, gap: 4 },
   nameLine: { flexDirection: 'row', alignItems: 'center', gap: 8 },

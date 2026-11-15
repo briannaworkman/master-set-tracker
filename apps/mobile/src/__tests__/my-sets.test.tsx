@@ -1,8 +1,10 @@
 import { CollectionStore, createMemoryRepo } from '@mst/collection-core';
+import { fixtureKinds } from '@mst/collection-core/testing';
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 import BrowseScreen from '../../app/browse';
 import HomeScreen from '../../app/index';
+import { CatalogProvider, createCatalog } from '../catalog/CatalogContext';
 import { TestProviders } from '../test/TestProviders';
 
 const mockPush = jest.fn();
@@ -49,6 +51,21 @@ it('adds a set from Browse and shows it with progress', async () => {
   expect(screen.getByText('0 of 11')).toBeOnTheScreen();
   await fireEvent.press(screen.getByRole('button', { name: 'Fixture Set, 0 of 11' }));
   expect(mockPush).toHaveBeenCalledWith('/set/fx');
+});
+
+it('shows an empty state in Browse when no sets are available', async () => {
+  const empty = createCatalog(
+    { index: { generatedAt: '2026-11-15T00:00:00.000Z', kinds: fixtureKinds, sets: [] }, sets: {} },
+    { includeDrafts: false },
+  );
+  await render(
+    <TestProviders store={newStore()}>
+      <CatalogProvider catalog={empty}>
+        <BrowseScreen />
+      </CatalogProvider>
+    </TestProviders>,
+  );
+  expect(await screen.findByText('No sets available yet')).toBeOnTheScreen();
 });
 
 it('shows Added ✓ for sets already tracked', async () => {
