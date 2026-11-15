@@ -57,4 +57,30 @@ describe('tcgdex source', () => {
     await expect(src.getCard('sv03.5-999')).rejects.toThrow(/TCGdex 404 for \/cards\/sv03\.5-999/);
     expect(readdirSync(cacheDir)).toHaveLength(0);
   });
+  it('rejects and caches nothing when the body stream errors mid-read', async () => {
+    const failing = (async () => {
+      const stream = new ReadableStream({
+        start(c) {
+          c.enqueue(new TextEncoder().encode('{"id":'));
+          c.error(new Error('boom'));
+        },
+      });
+      return new Response(stream, { status: 200 });
+    }) as typeof fetch;
+    const s = createTcgdexSource({ fetch: failing, cacheDir });
+    await expect(s.getCard('sv03.5-001')).rejects.toThrow();
+    expect(readdirSync(cacheDir)).toHaveLength(0);
+  });
+  it('rejects and caches nothing on a 200 with invalid JSON', async () => {
+    const bad = (async () => new Response('<html>oops', { status: 200 })) as typeof fetch;
+    const s = createTcgdexSource({ fetch: bad, cacheDir });
+    await expect(s.getCard('sv03.5-001')).rejects.toThrow();
+    expect(readdirSync(cacheDir)).toHaveLength(0);
+  });
+  it('handles concurrent requests for the same path', async () => {
+    const [a, b] = await Promise.all([src.getCard('sv03.5-001'), src.getCard('sv03.5-001')]);
+    expect(a).toEqual(b);
+    expect(a.id).toBe('sv03.5-001');
+    expect(readdirSync(cacheDir).filter((f) => f.endsWith('.tmp'))).toHaveLength(0);
+  });
 });

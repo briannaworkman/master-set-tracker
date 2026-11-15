@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 
 export interface SourceCard {
@@ -66,9 +67,14 @@ export function createTcgdexSource(opts: {
     const data = JSON.parse(body) as T;
 
     mkdirSync(cacheDir, { recursive: true });
-    const tmp = `${file}.${process.pid}.tmp`;
-    writeFileSync(tmp, body);
-    renameSync(tmp, file);
+    const tmp = `${file}.${randomUUID()}.tmp`;
+    try {
+      writeFileSync(tmp, body);
+      renameSync(tmp, file);
+    } catch (err) {
+      rmSync(tmp, { force: true });
+      throw err;
+    }
     return data;
   }
 
