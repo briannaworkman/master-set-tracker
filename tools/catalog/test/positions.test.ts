@@ -67,6 +67,34 @@ describe('assignPositions', () => {
     expect(third.lock.retired).toEqual([1]);
   });
 
+  it('gives a re-added, previously retired key a fresh position', () => {
+    const first = assignPositions('s', [draft('a', ['normal', 'reverse'])], null);
+    const second = assignPositions('s', [draft('a', ['normal'])], first.lock);
+    const third = assignPositions('s', [draft('a', ['normal', 'reverse'])], second.lock);
+    expect(pos(third, 'a:reverse')).toBe(2);
+    expect(third.lock.retired).toEqual([1]);
+    expect(third.added).toEqual(['a:reverse']);
+    expect(third.lock.catalogVersion).toBe(3);
+  });
+
+  it('bumps catalogVersion and reports a change for a retirement-only change', () => {
+    const first = assignPositions('s', [draft('a', ['normal', 'reverse'])], null);
+    const r = assignPositions('s', [draft('a', ['normal'])], first.lock);
+    expect(r.changed).toBe(true);
+    expect(r.added).toEqual([]);
+    expect(r.retiredKeys).toEqual(['a:reverse']);
+    expect(r.lock.catalogVersion).toBe(2);
+  });
+
+  it('retires every version of a card that is dropped', () => {
+    const first = assignPositions('s', [draft('a', ['normal', 'reverse']), draft('b', ['normal', 'reverse'])], null);
+    const r = assignPositions('s', [draft('a', ['normal', 'reverse'])], first.lock);
+    expect(r.retiredKeys).toEqual(['b:normal', 'b:reverse']);
+    expect(r.lock.retired).toEqual([2, 3]);
+    expect(Object.keys(r.lock.positions)).toEqual(['a:normal', 'a:reverse']);
+    expect(r.cards.map((c) => c.id)).toEqual(['a']);
+  });
+
   it('throws on a duplicate version key', () => {
     expect(() => assignPositions('s', [draft('a', ['normal']), draft('a', ['normal'])], null)).toThrow(
       'duplicate version key "a:normal"',
