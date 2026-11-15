@@ -262,5 +262,62 @@ export function runRepoContract(name: string, make: () => CollectionRepo): void 
         expect(repo.getSyncState()).toEqual({ cursor: 0, lastSyncedAt: null });
       });
     });
+
+    // A device whose clock is behind must still stamp a write later than the version it already
+    // holds, or the server would reject it as older while markSynced cleared it locally.
+    describe('monotonic updatedAt', () => {
+      const T5 = '2026-01-01T10:00:05.000Z';
+      const T5_1 = '2026-01-01T10:00:05.001Z';
+      const T2 = '2026-01-01T10:00:02.000Z';
+      const T9 = '2026-01-01T10:00:09.000Z';
+      const dirtyCount = () => repo.dirtyChanges(10).collection[0]!;
+      const dirtyTracked = () => repo.dirtyChanges(10).tracked[0]!;
+
+      it('setCount stamps after the existing local row when the clock is behind', () => {
+        repo.setCount('a', 'c-1', 'normal', 1, T5);
+        repo.setCount('a', 'c-1', 'normal', 2, T2);
+        expect(dirtyCount()).toMatchObject({ count: 2, updatedAt: T5_1 });
+      });
+
+      it('setCount stamps after a row that came from the server', () => {
+        repo.applyRemote({ collection: [{ cardId: 'c-1', kind: 'normal', setId: 'a', count: 2, updatedAt: T5 }], tracked: [] });
+        repo.setCount('a', 'c-1', 'normal', 3, T2);
+        expect(dirtyCount()).toMatchObject({ count: 3, updatedAt: T5_1 });
+      });
+
+      it('a rewrite within the same millisecond moves updatedAt forward by 1 ms', () => {
+        repo.setCount('a', 'c-1', 'normal', 1, T5);
+        repo.setCount('a', 'c-1', 'normal', 2, T5);
+        expect(dirtyCount().updatedAt).toBe(T5_1);
+      });
+
+      it('uses now when it is later than the existing row, as a toISOString value', () => {
+        repo.setCount('a', 'c-1', 'normal', 1, T5);
+        repo.setCount('a', 'c-1', 'normal', 2, '2026-01-01T10:00:09Z');
+        expect(dirtyCount().updatedAt).toBe(T9);
+      });
+
+      it('trackSet (re-track), untrackSet and setHiddenCategories stamp after the existing row', () => {
+        repo.trackSet('a', T5);
+        repo.untrackSet('a', T2);
+        expect(dirtyTracked()).toMatchObject({ updatedAt: T5_1 });
+        expect(dirtyTracked().removedAt).not.toBeNull();
+
+        repo.trackSet('a', T2);
+        expect(dirtyTracked()).toMatchObject({ removedAt: null, updatedAt: '2026-01-01T10:00:05.002Z' });
+
+        repo.setHiddenCategories('a', ['promos'], T2);
+        expect(dirtyTracked()).toMatchObject({ hiddenCategoryIds: ['promos'], updatedAt: '2026-01-01T10:00:05.003Z' });
+      });
+
+      it('tracked writes stamp after a tracked row that came from the server', () => {
+        repo.applyRemote({
+          collection: [],
+          tracked: [{ setId: 'a', hiddenCategoryIds: [], addedAt: T2, removedAt: null, updatedAt: T5 }],
+        });
+        repo.setHiddenCategories('a', ['x'], T2);
+        expect(dirtyTracked().updatedAt).toBe(T5_1);
+      });
+    });
   });
 }

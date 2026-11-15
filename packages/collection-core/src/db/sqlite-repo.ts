@@ -1,7 +1,7 @@
 import { clampCount, versionKey, type VersionKey } from '../keys';
 import { migrate } from './migrations';
 import { takeOldest } from '../sync/dirty-merge';
-import { isNewerOrEqual, type CollectionRow, type TrackedRow } from '../sync/types';
+import { isNewerOrEqual, stampAfter, type CollectionRow, type TrackedRow } from '../sync/types';
 import type { CollectionRepo, SqlDb, TrackedSet } from './sql-db';
 
 function parseIds(raw: string): string[] {
@@ -28,25 +28,35 @@ export function createSqliteRepo(db: SqlDb): CollectionRepo {
         }));
     },
     trackSet(setId, now) {
+      const cur = db.first<{ removed_at: string | null; updated_at: string }>(
+        'SELECT removed_at, updated_at FROM tracked_sets WHERE set_id = ?',
+        [setId],
+      );
+      if (cur && cur.removed_at === null) return;
+      const updatedAt = stampAfter(now, cur?.updated_at);
       db.run(
         `INSERT INTO tracked_sets (set_id, hidden_category_ids, added_at, updated_at, dirty) VALUES (?, '[]', ?, ?, 1)
          ON CONFLICT (set_id) DO UPDATE SET removed_at = NULL, added_at = excluded.added_at, updated_at = excluded.updated_at, dirty = 1
          WHERE tracked_sets.removed_at IS NOT NULL`,
-        [setId, now, now],
+        [setId, now, updatedAt],
       );
     },
     untrackSet(setId, now) {
+      const cur = db.first<{ updated_at: string }>('SELECT updated_at FROM tracked_sets WHERE set_id = ? AND removed_at IS NULL', [setId]);
+      if (!cur) return;
       db.run('UPDATE tracked_sets SET removed_at = ?, updated_at = ?, dirty = 1 WHERE set_id = ? AND removed_at IS NULL', [
         now,
-        now,
+        stampAfter(now, cur.updated_at),
         setId,
       ]);
     },
     setHiddenCategories(setId, ids, now) {
+      const cur = db.first<{ updated_at: string }>('SELECT updated_at FROM tracked_sets WHERE set_id = ? AND removed_at IS NULL', [setId]);
+      if (!cur) return;
       db.run(
         `UPDATE tracked_sets SET hidden_category_ids = ?, updated_at = ?, dirty = 1
          WHERE set_id = ? AND removed_at IS NULL AND hidden_category_ids IS NOT ?`,
-        [JSON.stringify(ids), now, setId, JSON.stringify(ids)],
+        [JSON.stringify(ids), stampAfter(now, cur.updated_at), setId, JSON.stringify(ids)],
       );
     },
     countsForSet(setId) {
@@ -61,7 +71,7 @@ export function createSqliteRepo(db: SqlDb): CollectionRepo {
     },
     setCount(setId, cardId, kind, count, now) {
       const next = clampCount(count);
-      const cur = db.first<{ set_id: string; count: number }>('SELECT set_id, count FROM collection WHERE card_id = ? AND kind = ?', [
+      const cur = db.first<{ set_id: string; count: number; updated_at: string }>('SELECT set_id, count, updated_at FROM collection WHERE card_id = ? AND kind = ?', [
         cardId,
         kind,
       ]);
@@ -69,7 +79,7 @@ export function createSqliteRepo(db: SqlDb): CollectionRepo {
       db.run(
         `INSERT INTO collection (set_id, card_id, kind, count, updated_at, dirty) VALUES (?, ?, ?, ?, ?, 1)
          ON CONFLICT (card_id, kind) DO UPDATE SET set_id = excluded.set_id, count = excluded.count, updated_at = excluded.updated_at, dirty = 1`,
-        [setId, cardId, kind, next, now],
+        [setId, cardId, kind, next, stampAfter(now, cur?.updated_at)],
       );
     },
     dirtyChanges(limit) {

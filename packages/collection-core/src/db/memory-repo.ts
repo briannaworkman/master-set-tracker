@@ -1,6 +1,6 @@
 import { clampCount, versionKey, type VersionKey } from '../keys';
 import { takeOldest } from '../sync/dirty-merge';
-import { isNewerOrEqual, type CollectionRow, type SyncState, type TrackedRow } from '../sync/types';
+import { isNewerOrEqual, stampAfter, type CollectionRow, type SyncState, type TrackedRow } from '../sync/types';
 import type { CollectionRepo, TrackedSet } from './sql-db';
 
 interface TrackedEntry extends TrackedRow {
@@ -43,19 +43,19 @@ export function createMemoryRepo(): CollectionRepo {
     trackSet(setId, now) {
       const t = tracked.get(setId);
       if (!t) {
-        tracked.set(setId, { setId, hiddenCategoryIds: [], addedAt: now, updatedAt: now, removedAt: null, dirty: true });
+        tracked.set(setId, { setId, hiddenCategoryIds: [], addedAt: now, updatedAt: stampAfter(now, null), removedAt: null, dirty: true });
       } else if (t.removedAt !== null) {
-        Object.assign(t, { addedAt: now, updatedAt: now, removedAt: null, dirty: true });
+        Object.assign(t, { addedAt: now, updatedAt: stampAfter(now, t.updatedAt), removedAt: null, dirty: true });
       }
     },
     untrackSet(setId, now) {
       const t = tracked.get(setId);
-      if (t && t.removedAt === null) Object.assign(t, { removedAt: now, updatedAt: now, dirty: true });
+      if (t && t.removedAt === null) Object.assign(t, { removedAt: now, updatedAt: stampAfter(now, t.updatedAt), dirty: true });
     },
     setHiddenCategories(setId, ids, now) {
       const t = tracked.get(setId);
       if (t && t.removedAt === null && !sameIds(t.hiddenCategoryIds, ids)) {
-        Object.assign(t, { hiddenCategoryIds: [...ids], updatedAt: now, dirty: true });
+        Object.assign(t, { hiddenCategoryIds: [...ids], updatedAt: stampAfter(now, t.updatedAt), dirty: true });
       }
     },
     countsForSet(setId) {
@@ -68,7 +68,7 @@ export function createMemoryRepo(): CollectionRepo {
       const next = clampCount(count);
       const cur = counts.get(key);
       if (cur ? cur.count === next && cur.setId === setId : next === 0) return;
-      counts.set(key, { cardId, kind, setId, count: next, updatedAt: now, dirty: true });
+      counts.set(key, { cardId, kind, setId, count: next, updatedAt: stampAfter(now, cur?.updatedAt), dirty: true });
     },
     dirtyChanges(limit) {
       return takeOldest(

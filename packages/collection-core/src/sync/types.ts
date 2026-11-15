@@ -37,3 +37,18 @@ export function isNewer(a: string, b: string): boolean {
 export function isNewerOrEqual(a: string, b: string): boolean {
   return a >= b;
 }
+
+/**
+ * The updatedAt for a local write to a row that currently has `previous` (null for a new row):
+ * max(now, previous + 1 ms) as a toISOString() value. A device whose clock is behind still stamps
+ * its write later than the version it holds (possibly pulled from a device whose clock is ahead),
+ * so the server never rejects it as older while markSynced clears it locally; a rewrite within the
+ * same millisecond also gets a distinct stamp. Values that don't parse as dates (tests only) pass
+ * through as `now`.
+ */
+export function stampAfter(now: string, previous: string | null | undefined): string {
+  const cur = Date.parse(now);
+  if (Number.isNaN(cur)) return now;
+  const prev = previous == null ? NaN : Date.parse(previous);
+  return new Date(Number.isNaN(prev) ? cur : Math.max(cur, prev + 1)).toISOString();
+}

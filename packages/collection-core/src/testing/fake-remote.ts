@@ -22,23 +22,83 @@ const copyChanges = (c: LocalChanges): LocalChanges => ({
   tracked: c.tracked.map(copyTracked),
 });
 
-/** Newest element per key, in first-seen key order (push_changes' `DISTINCT ON ... ORDER BY updated_at DESC`). */
+/** Newest element per key, sorted by key (push_changes' `DISTINCT ON (key) ... ORDER BY key, updated_at DESC`). */
 function newestPerKey<T extends { updatedAt: string }>(rows: T[], key: (r: T) => string): T[] {
   const out = new Map<string, T>();
   for (const r of rows) {
     const cur = out.get(key(r));
     if (!cur || r.updatedAt > cur.updatedAt) out.set(key(r), r);
   }
-  return [...out.values()];
+  return [...out.entries()].sort(([a], [b]) => cmp(a, b)).map(([, r]) => r);
+}
+
+// push_changes' timestamp pattern: explicit offset, at most 3 fractional digits.
+const ISO = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(\.\d{1,3})?(Z|[+-]\d{2}(:?\d{2})?)$/;
+
+/** The instant as a toISOString() value (what pull_changes returns), or null if push_changes would reject it. */
+function normalizeTimestamp(v: unknown): string | null {
+  if (typeof v !== 'string') return null;
+  const m = ISO.exec(v);
+  if (!m) return null;
+  const [, y, mo, d, h, mi, sec] = m.map(Number) as number[];
+  if (mo! < 1 || mo! > 12 || d! < 1 || d! > new Date(Date.UTC(y!, mo!, 0)).getUTCDate() || h! > 23 || mi! > 59 || sec! > 59) {
+    return null;
+  }
+  let offset = m[8]!;
+  if (/^[+-]\d{2}$/.test(offset)) offset += ':00';
+  else if (/^[+-]\d{4}$/.test(offset)) offset = `${offset.slice(0, 3)}:${offset.slice(3)}`;
+  const t = Date.parse(`${v.slice(0, v.length - m[8]!.length)}${offset}`);
+  return Number.isNaN(t) ? null : new Date(t).toISOString();
+}
+
+const nonEmpty = (v: unknown): boolean => typeof v === 'string' && v !== '';
+
+/** Validates and normalizes a push like push_changes: the first problem rejects the whole call. */
+function validatePush(input: LocalChanges): LocalChanges {
+  if (!Array.isArray(input.collection)) throw new Error('p_collection must be a JSON array');
+  if (!Array.isArray(input.tracked)) throw new Error('p_tracked must be a JSON array');
+  const collection = input.collection.map((r, i): CollectionRow => {
+    const where = `p_collection[${i}]`;
+    for (const f of ['cardId', 'kind', 'setId'] as const) {
+      if (!nonEmpty(r[f])) throw new Error(`${where}.${f} must be a non-empty string`);
+    }
+    if (!Number.isInteger(r.count)) throw new Error(`${where}.count must be an integer`);
+    if (r.count < 0 || r.count > 999) throw new Error(`${where}.count must be between 0 and 999`);
+    const updatedAt = normalizeTimestamp(r.updatedAt);
+    if (updatedAt === null) throw new Error(`${where}.updated_at must be an ISO-8601 timestamp string`);
+    return { ...r, updatedAt };
+  });
+  const tracked = input.tracked.map((r, i): TrackedRow => {
+    const where = `p_tracked[${i}]`;
+    if (!nonEmpty(r.setId)) throw new Error(`${where}.set_id must be a non-empty string`);
+    if (!Array.isArray(r.hiddenCategoryIds) || !r.hiddenCategoryIds.every((x) => typeof x === 'string')) {
+      throw new Error(`${where}.hidden_category_ids must be an array of strings`);
+    }
+    const addedAt = normalizeTimestamp(r.addedAt);
+    if (addedAt === null) throw new Error(`${where}.added_at must be an ISO-8601 timestamp string`);
+    const removedAt = r.removedAt == null ? null : normalizeTimestamp(r.removedAt);
+    if (r.removedAt != null && removedAt === null) {
+      throw new Error(`${where}.removed_at must be null or an ISO-8601 timestamp string`);
+    }
+    const updatedAt = normalizeTimestamp(r.updatedAt);
+    if (updatedAt === null) throw new Error(`${where}.updated_at must be an ISO-8601 timestamp string`);
+    return { ...r, addedAt, removedAt, updatedAt };
+  });
+  return { collection, tracked };
 }
 
 /**
  * In-memory stand-in for one signed-in user's view of the Supabase sync RPCs
  * (supabase/migrations/20261116000001_sync.sql):
- * - push: last-write-wins by client updatedAt, accepted only when strictly newer (the server keeps
- *   its row on a tie); duplicate keys in one call collapse to the newest; counts outside 0..999
- *   reject the whole call; each accepted write takes the next value of one sequence shared by both
- *   tables, rejected writes take none.
+ * - push: every element is validated first (ids, count 0..999, ISO-8601 timestamps with an offset
+ *   and at most 3 fractional digits); the first problem rejects the whole call. Timestamps are
+ *   stored as UTC toISOString() values, as pull_changes returns them. Duplicate keys in one call
+ *   collapse to the newest. A row applies only when strictly newer than the server's (the server
+ *   keeps its row on a tie).
+ * - serverSeq: one sequence shared by both tables, advanced like the BEFORE INSERT/UPDATE triggers
+ *   on `INSERT ... ON CONFLICT DO UPDATE`: every row reaching the insert takes a value (rejected
+ *   ones included), and an accepted update takes a second one, which the row keeps. So cursors
+ *   have gaps: never assume consecutive values (use seqs()).
  * - pull: rows with serverSeq > cursor from both tables merged in serverSeq order, at most `limit`
  *   (1..1000); nextCursor is the page's highest serverSeq (or the cursor when empty); hasMore says
  *   whether rows remain.
@@ -65,9 +125,14 @@ export class FakeSyncRemote implements SyncRemote {
   /** Awaited before a pull reads anything; throw to fail the call. */
   beforePull?: (cursor: number, limit: number) => void | Promise<void>;
 
-  /** The highest serverSeq handed out so far. */
+  /** The last value taken from the sequence (rejected rows advance it too). */
   get seq(): number {
     return this.sequence;
+  }
+
+  /** The serverSeq every stored row currently holds, ascending: the cursors a full pull can end on. */
+  seqs(): number[] {
+    return [...this.collection.values(), ...this.tracked.values()].map((r) => r.serverSeq).sort((a, b) => a - b);
   }
 
   /** Makes the next call of `op` throw `error` before doing any work. Queues if called repeatedly. */
@@ -86,30 +151,27 @@ export class FakeSyncRemote implements SyncRemote {
   }
 
   async push(changes: LocalChanges): Promise<void> {
-    const input = copyChanges(changes);
-    this.pushCalls.push(copyChanges(input));
+    const raw = copyChanges(changes);
+    this.pushCalls.push(copyChanges(raw));
     this.takeFailure('push');
-    await this.beforePush?.(copyChanges(input));
-
-    input.collection.forEach((r, i) => {
-      if (!Number.isInteger(r.count) || r.count < 0 || r.count > 999) {
-        throw new Error(`p_collection[${i}].count must be between 0 and 999`);
-      }
-    });
+    await this.beforePush?.(copyChanges(raw));
+    const input = validatePush(raw);
 
     let collectionApplied = 0;
     for (const r of newestPerKey(input.collection, (x) => `${x.cardId}\u0000${x.kind}`)) {
       const key = `${r.cardId}\u0000${r.kind}`;
       const cur = this.collection.get(key);
+      const insertSeq = ++this.sequence; // BEFORE INSERT fires for every proposed row
       if (cur && !(r.updatedAt > cur.updatedAt)) continue;
-      this.collection.set(key, { ...r, serverSeq: ++this.sequence });
+      this.collection.set(key, { ...r, serverSeq: cur ? ++this.sequence : insertSeq }); // BEFORE UPDATE on conflict
       collectionApplied++;
     }
     let trackedApplied = 0;
     for (const r of newestPerKey(input.tracked, (x) => x.setId)) {
       const cur = this.tracked.get(r.setId);
+      const insertSeq = ++this.sequence;
       if (cur && !(r.updatedAt > cur.updatedAt)) continue;
-      this.tracked.set(r.setId, { ...r, serverSeq: ++this.sequence });
+      this.tracked.set(r.setId, { ...r, serverSeq: cur ? ++this.sequence : insertSeq });
       trackedApplied++;
     }
     this.lastPushApplied = { collection: collectionApplied, tracked: trackedApplied };

@@ -69,7 +69,7 @@ describe.each<RepoKind>(['memory', 'sqlite'])('SyncEngine over a %s repo', (kind
     ]);
     expect(server.snapshot().tracked).toMatchObject([{ setId: 's1', hiddenCategoryIds: ['promos'], removedAt: null }]);
     expect(a.repo.dirtyCount()).toBe(0);
-    expect(a.repo.getSyncState()).toEqual({ cursor: server.seq, lastSyncedAt: '2026-01-02T00:00:00.000Z' });
+    expect(a.repo.getSyncState()).toEqual({ cursor: server.seqs().at(-1), lastSyncedAt: '2026-01-02T00:00:00.000Z' });
 
     // A second device downloads it; its store emits once for the whole page.
     const b = makeDevice(server, other(kind));
@@ -143,6 +143,31 @@ describe.each<RepoKind>(['memory', 'sqlite'])('SyncEngine over a %s repo', (kind
     }
   });
 
+  it('converges when one device clock is behind, reporting pending 0 only once converged', async () => {
+    const server = new FakeSyncRemote();
+    const a = makeDevice(server, kind);
+    const b = makeDevice(server, other(kind));
+    a.clock.set('2026-01-01T10:00:05.000Z');
+    a.store.track('s1');
+    a.store.setCount('s1', 's1-001', 'normal', 2);
+    await a.engine.syncNow();
+    await b.engine.syncNow(); // B now holds A's rows, stamped by A's clock
+
+    b.clock.set('2026-01-01T10:00:02.000Z'); // B's clock is 3 s behind
+    b.store.setCount('s1', 's1-001', 'normal', 3);
+    b.store.setHidden('s1', ['promos']);
+    expect(await b.engine.syncNow()).toMatchObject({ state: 'idle', pending: 0 });
+    await a.engine.syncNow();
+
+    expect(server.snapshot().collection).toMatchObject([{ cardId: 's1-001', count: 3 }]);
+    expect(server.snapshot().tracked).toMatchObject([{ setId: 's1', hiddenCategoryIds: ['promos'] }]);
+    for (const d of [a, b]) {
+      expect(d.store.getCounts('s1')).toEqual({ 's1-001:normal': 3 });
+      expect(d.store.getTracked()).toMatchObject([{ setId: 's1', hiddenCategoryIds: ['promos'] }]);
+      expect(d.repo.dirtyCount()).toBe(0);
+    }
+  });
+
   it('keeps changes dirty when push fails and retries next time', async () => {
     const server = new FakeSyncRemote();
     const a = makeDevice(server, kind);
@@ -193,11 +218,13 @@ describe.each<RepoKind>(['memory', 'sqlite'])('SyncEngine over a %s repo', (kind
     };
     expect(await a.engine.syncNow()).toMatchObject({ state: 'offline', pending: 1 });
     expect(server.snapshot().collection).toHaveLength(1);
-    const seq = server.seq;
+    const seqs = server.seqs();
 
     server.afterPush = undefined;
     expect(await a.engine.syncNow()).toMatchObject({ state: 'idle', pending: 0 });
-    expect(server.seq).toBe(seq); // the retried row tied, so the server kept it untouched
+    // The retried row tied, so the server kept its row untouched.
+    expect(server.lastPushApplied).toEqual({ collection: 0, tracked: 0 });
+    expect(server.seqs()).toEqual(seqs);
     expect(a.store.getCounts('s1')).toEqual({ 's1-001:normal': 4 });
   });
 
@@ -205,7 +232,11 @@ describe.each<RepoKind>(['memory', 'sqlite'])('SyncEngine over a %s repo', (kind
     const server = new FakeSyncRemote();
     for (let i = 1; i <= 5; i++) {
       await server.push({ collection: [crow(`s1-00${i}`, i, `2026-01-01T10:00:0${i}.000Z`)], tracked: [] });
+      // A rejected stale write takes a sequence value too, so cursors have gaps.
+      await server.push({ collection: [crow(`s1-00${i}`, 0, '2025-01-01T00:00:00.000Z')], tracked: [] });
     }
+    const seqs = server.seqs();
+    expect(seqs).not.toEqual([1, 2, 3, 4, 5]);
     const a = makeDevice(server, kind, { pullLimit: 2 });
     let pulls = 0;
     server.beforePull = () => {
@@ -214,13 +245,13 @@ describe.each<RepoKind>(['memory', 'sqlite'])('SyncEngine over a %s repo', (kind
 
     const failed = await a.engine.syncNow();
     expect(failed).toMatchObject({ state: 'error', error: 'pull_changes: statement timeout', lastSyncedAt: null });
-    expect(a.repo.getSyncState()).toEqual({ cursor: 2, lastSyncedAt: null });
+    expect(a.repo.getSyncState()).toEqual({ cursor: seqs[1], lastSyncedAt: null });
     expect(a.store.getCounts('s1')).toEqual({ 's1-001:normal': 1, 's1-002:normal': 2 });
 
     server.beforePull = undefined;
     expect(await a.engine.syncNow()).toMatchObject({ state: 'idle' });
-    expect(server.pullCalls.slice(2).map((c) => c.cursor)).toEqual([2, 4]); // resumed at the saved cursor
-    expect(a.repo.getSyncState().cursor).toBe(5);
+    expect(server.pullCalls.slice(2).map((c) => c.cursor)).toEqual([seqs[1], seqs[3]]); // resumed at the saved cursor
+    expect(a.repo.getSyncState().cursor).toBe(seqs[4]);
     expect(Object.keys(a.store.getCounts('s1'))).toHaveLength(5);
   });
 
@@ -274,7 +305,7 @@ describe.each<RepoKind>(['memory', 'sqlite'])('SyncEngine over a %s repo', (kind
     expect(a.store.getCounts('s1')).toEqual({ 's1-001:normal': 6 });
   });
 
-  it('runs at most one follow-up per syncNow call', async () => {
+  it('runs at most one write-triggered follow-up per syncNow call', async () => {
     const server = new FakeSyncRemote();
     const a = makeDevice(server, kind);
     let n = 0;
@@ -289,6 +320,48 @@ describe.each<RepoKind>(['memory', 'sqlite'])('SyncEngine over a %s repo', (kind
     expect(a.repo.dirtyChanges(10).collection.map((r) => r.cardId)).toEqual(['s1-102']);
   });
 
+  it('gives a syncNow made during a run, even the follow-up, exactly one more run', async () => {
+    const server = new FakeSyncRemote();
+    const a = makeDevice(server, kind);
+    let n = 0;
+    const joined: Promise<SyncStatus>[] = [];
+    server.beforePush = () => {
+      n += 1;
+      a.store.tap('s1', `s1-10${n}`, 'normal');
+      if (n === 2) joined.push(a.engine.syncNow(), a.engine.syncNow()); // during the follow-up run
+    };
+    a.store.tap('s1', 's1-001', 'normal');
+    const first = a.engine.syncNow();
+    const status = await first;
+    expect(joined).toHaveLength(2);
+    expect(joined[0]).toBe(first);
+    // Run 1, its write follow-up (run 2), and one run for the two calls made during run 2.
+    expect(server.pushCalls).toHaveLength(3);
+    expect(server.pullCalls).toHaveLength(3);
+    expect(status).toMatchObject({ state: 'idle', pending: 1 }); // s1-103 was tapped during run 3
+  });
+
+  it('adds one run for several syncNow calls during a run, even after a failed run', async () => {
+    const server = new FakeSyncRemote();
+    const a = makeDevice(server, kind);
+    const entered = deferred();
+    const release = deferred();
+    server.beforePull = async () => {
+      if (server.pullCalls.length > 1) return;
+      entered.resolve();
+      await release.promise;
+      throw new Error('pull_changes: boom');
+    };
+    const run = a.engine.syncNow();
+    await entered.promise;
+    void a.engine.syncNow();
+    void a.engine.syncNow();
+    void a.engine.syncNow();
+    release.resolve();
+    expect(await run).toMatchObject({ state: 'idle' });
+    expect(server.pullCalls).toHaveLength(2);
+  });
+
   it('pages pulls until has_more is false', async () => {
     const server = new FakeSyncRemote();
     const b = makeDevice(server, other(kind));
@@ -297,17 +370,21 @@ describe.each<RepoKind>(['memory', 'sqlite'])('SyncEngine over a %s repo', (kind
     for (let i = 1; i <= 3; i++) b.store.setCount('s1', `s1-00${i}`, 'normal', i);
     b.store.setHidden('s2', ['promos']);
     await b.engine.syncNow();
-    expect(server.seq).toBe(5);
+    b.store.setCount('s1', 's1-001', 'normal', 9); // an update moves the row to a later seq, leaving a gap
+    await b.engine.syncNow();
+    const seqs = server.seqs();
+    expect(seqs).toHaveLength(5);
+    const pullsBefore = server.pullCalls.length;
 
     const a = makeDevice(server, kind, { pullLimit: 2 });
     expect(await a.engine.syncNow()).toMatchObject({ state: 'idle' });
-    expect(server.pullCalls.slice(1)).toEqual([
+    expect(server.pullCalls.slice(pullsBefore)).toEqual([
       { cursor: 0, limit: 2 },
-      { cursor: 2, limit: 2 },
-      { cursor: 4, limit: 2 },
+      { cursor: seqs[1], limit: 2 },
+      { cursor: seqs[3], limit: 2 },
     ]);
-    expect(a.repo.getSyncState().cursor).toBe(5);
-    expect(a.store.getCounts('s1')).toEqual({ 's1-001:normal': 1, 's1-002:normal': 2, 's1-003:normal': 3 });
+    expect(a.repo.getSyncState().cursor).toBe(seqs[4]);
+    expect(a.store.getCounts('s1')).toEqual({ 's1-001:normal': 9, 's1-002:normal': 2, 's1-003:normal': 3 });
     expect(a.store.getTracked().map((t) => [t.setId, t.hiddenCategoryIds])).toEqual([
       ['s1', []],
       ['s2', ['promos']],
@@ -315,8 +392,8 @@ describe.each<RepoKind>(['memory', 'sqlite'])('SyncEngine over a %s repo', (kind
 
     // Nothing new: one empty page, cursor unchanged.
     await a.engine.syncNow();
-    expect(server.pullCalls.at(-1)).toEqual({ cursor: 5, limit: 2 });
-    expect(a.repo.getSyncState().cursor).toBe(5);
+    expect(server.pullCalls.at(-1)).toEqual({ cursor: seqs[4], limit: 2 });
+    expect(a.repo.getSyncState().cursor).toBe(seqs[4]);
   });
 
   it('reports offline and does no network work when offline', async () => {
@@ -359,13 +436,14 @@ describe.each<RepoKind>(['memory', 'sqlite'])('SyncEngine over a %s repo', (kind
     expect(p2).toBe(p1);
     expect(p3).toBe(p1);
     await Promise.all([p1, p2, p3]);
+    // p2 and p3 arrived while run 1 was in flight, so together they get exactly one more run.
     expect(server.pushCalls).toHaveLength(1);
-    expect(server.pullCalls).toHaveLength(1);
+    expect(server.pullCalls).toHaveLength(2);
 
-    const p4 = a.engine.syncNow(); // a call after the run settled starts a new one
+    const p4 = a.engine.syncNow(); // a call after everything settled starts a new one
     expect(p4).not.toBe(p1);
     await p4;
-    expect(server.pullCalls).toHaveLength(2);
+    expect(server.pullCalls).toHaveLength(3);
   });
 });
 
@@ -495,6 +573,103 @@ describe('SyncEngine status', () => {
   });
 });
 
+describe('SyncEngine.stop', () => {
+  it('stopped during a push: the batch is not marked synced and nothing more runs', async () => {
+    const server = new FakeSyncRemote();
+    const a = makeDevice(server, 'sqlite');
+    const entered = deferred();
+    const release = deferred();
+    server.afterPush = async () => {
+      entered.resolve();
+      await release.promise;
+    };
+    a.store.tap('s1', 's1-001', 'normal');
+    const run = a.engine.syncNow();
+    await entered.promise; // the server has applied the push; its response is outstanding
+    const stopped = a.engine.stop();
+    expect(await a.engine.syncNow()).toBe(a.engine.getStatus()); // resolves at once, no new run
+    release.resolve();
+    await stopped;
+    await run;
+
+    expect(server.snapshot().collection).toHaveLength(1);
+    expect(a.repo.dirtyCount()).toBe(1); // never marked synced
+    expect(server.pullCalls).toHaveLength(0);
+    expect(a.repo.getSyncState()).toEqual({ cursor: 0, lastSyncedAt: null });
+    expect(a.engine.getStatus()).toEqual({ state: 'idle', lastSyncedAt: null, pending: 1 });
+  });
+
+  it('stopped during a pull: the page is not applied and the cursor is not saved', async () => {
+    const server = new FakeSyncRemote();
+    await server.push({ collection: [crow('s1-001', 4, '2026-01-01T00:00:00.000Z')], tracked: [] });
+    const a = makeDevice(server, 'sqlite');
+    const entered = deferred();
+    const release = deferred();
+    server.beforePull = async () => {
+      entered.resolve();
+      await release.promise;
+    };
+    expect(a.store.getCounts('s1')).toEqual({}); // cached, so an applied page would emit
+    const listener = vi.fn();
+    a.store.subscribe(listener);
+    const run = a.engine.syncNow();
+    await entered.promise;
+    const stopped = a.engine.stop();
+    release.resolve();
+    await stopped;
+    expect(listener).not.toHaveBeenCalled();
+    expect(a.repo.countsForSet('s1')).toEqual({});
+    expect(a.repo.getSyncState()).toEqual({ cursor: 0, lastSyncedAt: null });
+    a.store.wipe(); // sign-out wipes once stop() has resolved
+    await run;
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(listener).toHaveBeenCalledTimes(1); // only the wipe
+    expect(a.store.getCounts('s1')).toEqual({});
+    expect(a.repo.getSyncState()).toEqual({ cursor: 0, lastSyncedAt: null });
+    expect(server.pullCalls).toHaveLength(1);
+    expect(a.engine.getStatus().state).toBe('idle');
+  });
+
+  it('with nothing in flight it resolves, ends idle, and later syncNow does no network work', async () => {
+    const server = new FakeSyncRemote();
+    const a = makeDevice(server, 'memory');
+    a.store.tap('s1', 's1-001', 'normal');
+    server.failNext('push', new Error('boom'));
+    await a.engine.syncNow();
+    expect(a.engine.getStatus()).toMatchObject({ state: 'error', error: 'boom' });
+    const seen: SyncStatus[] = [];
+    a.engine.subscribe((st) => seen.push(st));
+
+    const p = a.engine.stop();
+    expect(a.engine.stop()).toBe(p);
+    await p;
+    expect(a.engine.getStatus()).toEqual({ state: 'idle', lastSyncedAt: null, pending: 1 });
+    a.engine.setOnline(false);
+    a.engine.setOnline(true);
+    expect(await a.engine.syncNow()).toEqual({ state: 'idle', lastSyncedAt: null, pending: 1 });
+    expect(server.pushCalls).toHaveLength(1);
+    expect(server.pullCalls).toHaveLength(0);
+    expect(seen.map((st) => st.state)).toEqual(['idle']);
+  });
+});
+
+describe('SyncEngine robustness', () => {
+  it('never rejects syncNow when dirtyCount throws during status bookkeeping', async () => {
+    const repo = createMemoryRepo();
+    const store = new CollectionStore(repo);
+    const engine = new SyncEngine({ repo, store, remote: new FakeSyncRemote() });
+    repo.dirtyCount = () => {
+      throw new Error('database is locked');
+    };
+    const status = await engine.syncNow();
+    expect(status.state).toBe('error');
+    expect(status.error).toMatch(/database is locked/);
+    engine.setOnline(false);
+    await expect(engine.syncNow()).resolves.toMatchObject({ state: 'offline' });
+  });
+});
+
 describe('isNetworkError', () => {
   it.each([
     new TypeError('Failed to fetch'),
@@ -511,6 +686,13 @@ describe('isNetworkError', () => {
     'Network request failed',
   ])('treats %s as a network failure', (e) => {
     expect(isNetworkError(e)).toBe(true);
+  });
+
+  it('treats aborted and timed-out requests (AbortError / TimeoutError) as network failures', () => {
+    expect(isNetworkError(new DOMException('This operation was aborted', 'AbortError'))).toBe(true);
+    expect(isNetworkError(new DOMException('The operation was aborted due to timeout', 'TimeoutError'))).toBe(true);
+    expect(isNetworkError(Object.assign(new Error('Aborted'), { name: 'AbortError' }))).toBe(true);
+    expect(isNetworkError({ name: 'AbortError', message: '' })).toBe(true);
   });
 
   it.each([

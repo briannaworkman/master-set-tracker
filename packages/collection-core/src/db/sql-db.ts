@@ -16,7 +16,11 @@ export interface TrackedSet {
   addedAt: string;
 }
 
-/** Card ids are globally unique (they start with the set id), so counts are keyed by (cardId, kind). */
+/**
+ * Card ids are globally unique (they start with the set id), so counts are keyed by (cardId, kind).
+ * Every local write (setCount, trackSet, untrackSet, setHiddenCategories) stamps the row's
+ * updatedAt with stampAfter(now, existing updatedAt): max(now, existing + 1 ms).
+ */
 export interface CollectionRepo {
   /** Sets currently tracked (not removed), ordered by addedAt ascending. */
   listTracked(): TrackedSet[];
