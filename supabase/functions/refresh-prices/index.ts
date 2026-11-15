@@ -2,7 +2,7 @@
 // migration) with the service-role bearer. SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are
 // provided by Supabase. Not type-checked or run by the Node workspace.
 import { createClient } from 'npm:@supabase/supabase-js@2';
-import { refreshSet, type PriceRow } from '../_shared/prices.ts';
+import { refreshSet, timingSafeEqual, type PriceRow } from '../_shared/prices.ts';
 
 const TCGDEX = 'https://api.tcgdex.net/v2/en';
 
@@ -10,21 +10,17 @@ function json(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 }
 
-/** verify_jwt (the platform default) has already validated the signature; check the caller is the service role. */
+/**
+ * The only gate (verify_jwt is off for this function, see supabase/config.toml): the bearer must
+ * equal SUPABASE_SERVICE_ROLE_KEY exactly, compared in constant time. No JWT claim is trusted.
+ */
 function isServiceRole(req: Request, serviceKey: string): boolean {
   const token = (req.headers.get('authorization') ?? '').replace(/^Bearer\s+/i, '');
-  if (!token) return false;
-  if (token === serviceKey) return true;
-  try {
-    const payload = JSON.parse(atob(token.split('.')[1]!.replace(/-/g, '+').replace(/_/g, '/')));
-    return payload?.role === 'service_role';
-  } catch {
-    return false;
-  }
+  return token !== '' && timingSafeEqual(token, serviceKey);
 }
 
 async function fetchJson(path: string): Promise<unknown> {
-  const res = await fetch(`${TCGDEX}${path}`);
+  const res = await fetch(`${TCGDEX}${path}`, { signal: AbortSignal.timeout(15000) });
   if (!res.ok) throw new Error(`HTTP ${res.status} ${path}`);
   return res.json();
 }

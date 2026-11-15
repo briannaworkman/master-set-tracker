@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { asAnon, asService, asUser, createDb, createUser } from '../src/harness';
-import { pricesFromTcgdexCard, refreshSet } from '../../../supabase/functions/_shared/prices';
+import { pricesFromTcgdexCard, refreshSet, timingSafeEqual } from '../../../supabase/functions/_shared/prices';
 
 // Shaped like GET https://api.tcgdex.net/v2/en/cards/sv08.5-001 (USD part of pricing).
 const sv085_001 = {
@@ -70,6 +70,32 @@ describe('refreshSet', () => {
     await expect(
       refreshSet({ setId: 's', tcgdexSetId: 's', fetchJson: async () => { throw new Error('HTTP 503'); } }),
     ).rejects.toThrow();
+  });
+});
+
+describe('refreshSet duplicates and encoding', () => {
+  it('fetches a duplicated card id once and yields unique rows', async () => {
+    const calls: string[] = [];
+    const fetchJson = async (path: string) => {
+      calls.push(path);
+      if (path === '/sets/s') return { cards: [{ id: 'a-1' }, { id: 'a-1' }, { id: 'b/2' }] };
+      return { id: path.slice(7), pricing: { tcgplayer: { normal: { marketPrice: 1 } } } };
+    };
+    const r = await refreshSet({ setId: 's', tcgdexSetId: 's', fetchJson });
+    expect(calls.filter((c) => c === '/cards/a-1')).toHaveLength(1);
+    expect(calls).toContain('/cards/b%2F2');
+    expect(r.rows.map((x) => x.card_id).sort()).toEqual(['a-1', 'b%2F2']);
+  });
+});
+
+describe('timingSafeEqual', () => {
+  it('compares strings', () => {
+    expect(timingSafeEqual('secret-key', 'secret-key')).toBe(true);
+    expect(timingSafeEqual('secret-key', 'secret-kez')).toBe(false);
+    expect(timingSafeEqual('secret', 'secret-key')).toBe(false);
+    expect(timingSafeEqual('', 'x')).toBe(false);
+    expect(timingSafeEqual('', '')).toBe(true);
+    expect(timingSafeEqual('é', 'e\u0301')).toBe(false);
   });
 });
 

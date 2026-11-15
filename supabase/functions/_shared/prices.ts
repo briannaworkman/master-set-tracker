@@ -50,10 +50,11 @@ export async function refreshSet(opts: {
 }): Promise<{ rows: PriceRow[]; failedCards: string[] }> {
   const { setId, tcgdexSetId, fetchJson } = opts;
   const concurrency = Math.max(1, Math.floor(opts.concurrency ?? 6));
-  const set = await fetchJson(`/sets/${tcgdexSetId}`);
+  const set = await fetchJson(`/sets/${encodeURIComponent(tcgdexSetId)}`);
   const list = isRecord(set) && Array.isArray(set.cards) ? set.cards : [];
-  const ids: string[] = [];
-  for (const c of list) if (isRecord(c) && typeof c.id === 'string') ids.push(c.id);
+  // De-duplicated: a repeated TCGdex entry must not yield duplicate (card_id, variant) rows,
+  // which would make a single-statement upsert fail ("cannot affect row a second time").
+  const ids = [...new Set(list.filter(isRecord).map((c) => c.id).filter((id): id is string => typeof id === 'string'))];
 
   const rows: PriceRow[] = [];
   const failedCards: string[] = [];
@@ -62,7 +63,7 @@ export async function refreshSet(opts: {
     while (next < ids.length) {
       const id = ids[next++]!;
       try {
-        rows.push(...pricesFromTcgdexCard(setId, await fetchJson(`/cards/${id}`)));
+        rows.push(...pricesFromTcgdexCard(setId, await fetchJson(`/cards/${encodeURIComponent(id)}`)));
       } catch {
         failedCards.push(id);
       }
@@ -71,4 +72,15 @@ export async function refreshSet(opts: {
   await Promise.all(Array.from({ length: Math.min(concurrency, ids.length) }, worker));
   failedCards.sort();
   return { rows, failedCards };
+}
+
+/** Constant-time string equality: compares UTF-8 byte lengths first, then XORs every byte. */
+export function timingSafeEqual(a: string, b: string): boolean {
+  const enc = new TextEncoder();
+  const x = enc.encode(a);
+  const y = enc.encode(b);
+  if (x.length !== y.length) return false;
+  let diff = 0;
+  for (let i = 0; i < x.length; i++) diff |= x[i]! ^ y[i]!;
+  return diff === 0;
 }

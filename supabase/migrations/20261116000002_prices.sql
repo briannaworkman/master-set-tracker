@@ -15,7 +15,10 @@
 --   2. Create the Vault secrets (SQL editor, as postgres):
 --        select vault.create_secret('https://<project-ref>.supabase.co/functions/v1/refresh-prices', 'refresh_prices_url');
 --        select vault.create_secret('<service role key>', 'service_role_key');
---   3. Deploy the function:  supabase functions deploy refresh-prices   (verify_jwt stays on).
+--      The service_role_key secret must hold EXACTLY the value the function sees as
+--      SUPABASE_SERVICE_ROLE_KEY (the function compares the bearer to it in constant time).
+--   3. Deploy the function:  supabase functions deploy refresh-prices
+--      (config.toml sets verify_jwt = false: the function's own check is the only gate).
 --   4. Re-run the schedule block below (or just the cron.schedule call) now that the
 --      prerequisites exist. To schedule manually:
 --        select cron.schedule('refresh-prices-daily', '0 9 * * *', $cmd$
@@ -23,7 +26,7 @@
 --            url := (select decrypted_secret from vault.decrypted_secrets where name = 'refresh_prices_url'),
 --            headers := jsonb_build_object('Content-Type', 'application/json',
 --              'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'service_role_key')),
---            body := '{}'::jsonb) $cmd$);
+--            body := '{}'::jsonb, timeout_milliseconds := 120000) $cmd$);
 
 create table public.price_sets (
   set_id text primary key,
@@ -71,8 +74,13 @@ begin
     raise notice 'prices: pg_cron/pg_net not installed; skipping refresh-prices schedule';
     return;
   end if;
-  if to_regclass('vault.decrypted_secrets') is null
-     or not exists (select 1 from vault.decrypted_secrets where name = 'refresh_prices_url')
+  -- Separate block: planning the Vault query needs the relation to exist, so it must not share
+  -- a statement with the extension check.
+  if to_regclass('vault.decrypted_secrets') is null then
+    raise notice 'prices: Vault not available; skipping refresh-prices schedule';
+    return;
+  end if;
+  if not exists (select 1 from vault.decrypted_secrets where name = 'refresh_prices_url')
      or not exists (select 1 from vault.decrypted_secrets where name = 'service_role_key') then
     raise notice 'prices: Vault secrets refresh_prices_url / service_role_key missing; skipping refresh-prices schedule';
     return;
@@ -83,7 +91,8 @@ begin
       headers := jsonb_build_object(
         'Content-Type', 'application/json',
         'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'service_role_key')),
-      body := '{}'::jsonb)
+      body := '{}'::jsonb,
+      timeout_milliseconds := 120000)
   $cmd$);
 end
 $schedule$;
