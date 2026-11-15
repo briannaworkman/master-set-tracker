@@ -3,9 +3,9 @@ import { CollectionStore, createMemoryPriceCache, createMemoryRepo, type Collect
 import { FakeSyncRemote } from '@mst/collection-core/testing';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { useState, type ReactNode } from 'react';
-import { Alert, AppState, Text } from 'react-native';
+import { AccessibilityInfo, Alert, AppState, Text } from 'react-native';
 import AccountScreen from '../../app/account';
-import { SIGN_OUT_SYNC_TIMEOUT_MS } from '../account/flows';
+import { GLOBAL_SIGN_OUT_TIMEOUT_MS, SIGN_OUT_SYNC_TIMEOUT_MS } from '../account/flows';
 import HomeScreen from '../../app/index';
 import { signedOutState, type AuthState } from '../auth/AuthProvider';
 import { useTracked } from '../db/StoreContext';
@@ -17,6 +17,7 @@ const mockPush = jest.fn();
 jest.mock('expo-router', () => ({
   useRouter: () => ({ push: mockPush, back: jest.fn() }),
   Stack: { Screen: () => null },
+  useIsFocused: () => true,
 }));
 
 const mockClient = {
@@ -143,6 +144,10 @@ async function renderApp(env: Env, opts: { auth?: AuthState; allowed?: string[];
   return view;
 }
 
+/** A sign-out that fails after 100 ms (so the screen change after the wipe renders first). */
+const slowFailure = () =>
+  new Promise((resolve) => setTimeout(() => resolve({ error: new Error('Keychain unavailable') }), 100));
+
 const alertButtons = (call = 0) =>
   (Alert.alert as jest.Mock).mock.calls[call]?.[2] as { text: string; style?: string; onPress?: () => void }[];
 
@@ -225,7 +230,7 @@ describe('sign out', () => {
     expect(env.store.getTracked()).toEqual([]);
     expect(env.repo.countsForSet('fx')).toEqual({});
     expect(env.repo.getSyncState()).toEqual({ cursor: 0, lastSyncedAt: null });
-    expect(env.repo.getLocalOwner()).toBeNull();
+    expect(env.repo.getLocalOwner()).toBe('user-a'); // kept, so a different next user wipes again
     expect(env.cache.get('fx')).toBeNull();
     expect(screen.getByText('gate: signedOut')).toBeOnTheScreen();
   });
@@ -339,6 +344,89 @@ describe('sign out', () => {
     expect(screen.getByText('gate: signedOut')).toBeOnTheScreen();
   });
 
+  it('shows no app screen between the wipe and a slow sign-out, and a stray write is still wiped for the next user', async () => {
+    const env = setup();
+    await renderApp(env, { screen: <AccountAndHome /> });
+    let finishSignOut!: () => void;
+    mockClient.auth.signOut.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishSignOut = () => {
+            setAuth(signedOutState);
+            resolve({ error: null });
+          };
+        }),
+    );
+
+    await press('Sign out');
+
+    // Wiped, still signed in, waiting on the server: no app route is rendered, so nothing can be tapped.
+    expect(mockClient.auth.signOut).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('gate: loading')).toBeOnTheScreen();
+    expect(screen.queryByText('My Sets')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Add set' })).toBeNull();
+    // The departing user still owns the (empty) local data, so a different next user wipes again.
+    expect(env.repo.getLocalOwner()).toBe('user-a');
+    // Even a write that got through some other path is not adopted by the next user.
+    await act(async () => env.store.track('fx'));
+
+    await act(async () => finishSignOut());
+    expect(screen.getByText('gate: signedOut')).toBeOnTheScreen();
+    allowedSets = [];
+    await act(async () => setAuth(userB));
+    await advance(0);
+    expect(leaked).toEqual([]);
+    expect(screen.getByText('Add a set to start tracking')).toBeOnTheScreen();
+    expect(env.serverB.pushCalls).toHaveLength(0);
+    expect(env.serverB.snapshot()).toEqual({ collection: [], tracked: [] });
+  });
+
+  it('gives a hung server sign-out 10 s, then signs out on this device', async () => {
+    const env = setup();
+    await renderApp(env);
+    mockClient.auth.signOut.mockImplementation(async (opts?: { scope?: string }) => {
+      if (opts?.scope !== 'local') return new Promise(() => {});
+      setAuth(signedOutState);
+      return { error: null };
+    });
+    await press('Sign out');
+    expect(mockClient.auth.signOut).toHaveBeenCalledTimes(1);
+    await advance(GLOBAL_SIGN_OUT_TIMEOUT_MS - 1);
+    expect(mockClient.auth.signOut).toHaveBeenCalledTimes(1);
+    await advance(1);
+    expect(mockClient.auth.signOut).toHaveBeenLastCalledWith({ scope: 'local' });
+    expect(screen.getByText('gate: signedOut')).toBeOnTheScreen();
+  });
+
+  it('restarts the session and alerts when even the local sign-out fails after the wipe', async () => {
+    const env = setup();
+    await renderApp(env);
+    mockClient.auth.signOut.mockImplementation(slowFailure);
+    jest.spyOn(Alert, 'alert');
+    await press('Sign out');
+    expect(screen.getByText('gate: loading')).toBeOnTheScreen(); // wiped: the Account screen is gone
+    await advance(100); // the server sign-out fails, then the local one
+    await advance(100);
+    expect(Alert.alert).toHaveBeenCalledWith("Couldn't sign out. Try again.");
+    expect(screen.getByText('a@example.com')).toBeOnTheScreen(); // back in the app
+    expect(session.engine).not.toBeNull();
+    expect(env.repo.getLocalOwner()).toBe('user-a');
+  });
+
+  it('shows the error for any unexpected failure in the flow', async () => {
+    const env = setup();
+    await renderApp(env);
+    jest.spyOn(session, 'pendingCount').mockImplementation(() => {
+      throw new Error('database is locked');
+    });
+    const logged = jest.spyOn(console, 'error').mockImplementation(() => {});
+    await press('Sign out');
+    expect(logged).toHaveBeenCalledWith('Sign-out failed', expect.any(Error));
+    expect(screen.getByText("Couldn't sign out. Try again.")).toBeOnTheScreen();
+    expect(mockClient.auth.signOut).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Sign out' })).toBeEnabled();
+  });
+
   it('releases the network and app-state listeners and pending retry timers', async () => {
     const env = setup();
     env.server.failNext('pull', new Error('pull_changes: permission denied'));
@@ -359,6 +447,29 @@ describe('sign out', () => {
 });
 
 describe('delete account', () => {
+  it('describes the consequence in the accessibility hint', async () => {
+    await renderApp(setup());
+    expect(screen.getByRole('button', { name: 'Delete account' }).props.accessibilityHint).toBe(
+      'Permanently deletes your account and all your marks',
+    );
+  });
+
+  it('restarts the session and shows the sign-out error when the local sign-out fails after deleting', async () => {
+    const env = setup();
+    env.store.track('fx');
+    await renderApp(env);
+    mockClient.auth.signOut.mockImplementation(slowFailure);
+    jest.spyOn(Alert, 'alert');
+    await press('Delete account');
+    await pressAlert('Delete account');
+    expect(screen.getByText('gate: loading')).toBeOnTheScreen();
+    await advance(100);
+    expect(Alert.alert).toHaveBeenLastCalledWith("Couldn't sign out. Try again.");
+    expect(screen.getByRole('button', { name: 'Delete account' })).toBeOnTheScreen(); // not stuck on the splash
+    expect(session.pricesEnabled).toBe(true);
+    expect(session.engine).not.toBeNull();
+  });
+
   it('confirms, calls the function, then wipes and signs out', async () => {
     const env = setup();
     env.store.track('fx');
@@ -401,6 +512,8 @@ describe('delete account', () => {
     ['throws', () => mockClient.functions.invoke.mockRejectedValue(new TypeError('Network request failed'))],
   ])('keeps everything and shows the error when the function %s', async (_label, arrange) => {
     arrange();
+    jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+    (AccessibilityInfo.announceForAccessibility as jest.Mock).mockClear();
     const env = setup();
     env.store.track('fx');
     env.store.setCount('fx', 'c-001', 'normal', 3);
@@ -411,6 +524,9 @@ describe('delete account', () => {
     await pressAlert('Delete account');
 
     expect(screen.getByText("Couldn't delete your account. Check your connection and try again.")).toBeOnTheScreen();
+    expect(AccessibilityInfo.announceForAccessibility).toHaveBeenCalledWith(
+      "Couldn't delete your account. Check your connection and try again.",
+    );
     expect(env.store.getTracked().map((t) => t.setId)).toEqual(['fx']);
     expect(env.store.getCounts('fx')).toEqual({ 'c-001:normal': 3 });
     expect(mockClient.auth.signOut).not.toHaveBeenCalled();
@@ -480,6 +596,32 @@ describe('another account signing in (R12)', () => {
     // Nothing of A's was pushed under B, and A's synced rows are untouched.
     expect(env.serverB.pushCalls).toHaveLength(0);
     expect(env.server.snapshot()).toEqual(synced);
+  });
+
+  it('unsynced changes signed out anyway never reach the next user (Review Focus 4)', async () => {
+    startOnline = false;
+    const env = setup();
+    await renderApp(env, { screen: <AccountAndHome /> });
+    await act(async () => env.store.track('fx'));
+    await act(async () => env.store.tap('fx', 'c-001', 'normal'));
+    jest.spyOn(Alert, 'alert');
+
+    await press('Sign out');
+    expect((Alert.alert as jest.Mock).mock.calls[0][0]).toBe(
+      "2 changes haven't synced yet and will be lost. Sign out anyway?",
+    );
+    await pressAlert('Sign out');
+    expect(screen.getByText('gate: signedOut')).toBeOnTheScreen();
+
+    startOnline = true; // B signs in with a working network
+    allowedSets = [];
+    await act(async () => setAuth(userB));
+    await advance(0);
+    expect(leaked).toEqual([]);
+    expect(screen.getByText('Add a set to start tracking')).toBeOnTheScreen();
+    expect(env.serverB.pullCalls).toHaveLength(1); // B's session did sync
+    expect(env.serverB.pushCalls).toHaveLength(0);
+    expect(env.server.pushCalls).toHaveLength(0);
   });
 
   it('keeps the gate closed while the previous engine is still stopping', async () => {

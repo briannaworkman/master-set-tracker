@@ -204,7 +204,8 @@ export interface SyncSession {
   stop(): Promise<void>;
   /**
    * The signed-in user's local data has been checked (and wiped if it was another account's), so
-   * app screens may render. False while signed out and while the check is pending.
+   * app screens may render. False while signed out, while the check is pending, and after
+   * endSession has wiped (until sign-out completes).
    */
   ready: boolean;
   /** The check (or the wipe it needed) failed: the local data must not be shown. */
@@ -217,11 +218,13 @@ export interface SyncSession {
    * The sign-out / account-deletion step after any sync and confirmation: stops background sync
    * and price fetching, stops the engine (waiting at most STOP_TIMEOUT_MS: once stop() is called
    * the engine writes nothing more, so wiping after the timeout is still safe), then wipes local
-   * collection, tracked sets, sync state (incl. owner) and the price cache. If the wipe throws, a
-   * fresh engine is started (see restart) and the error is rethrown.
+   * collection, tracked sets, sync state and the price cache, and records the departing user as the
+   * owner of the empty data. From then on `ready` is false (no app routes) until the sign-out
+   * completes or restart() is called. If the wipe throws, a fresh engine is started (see restart)
+   * and the error is rethrown.
    */
   endSession(): Promise<void>;
-  /** Starts a fresh engine and resumes price fetching for the still-signed-in user. */
+  /** Starts a fresh engine, reopens the app and resumes price fetching for the still-signed-in user. */
   restart(): void;
 }
 
@@ -292,6 +295,8 @@ export function SyncSessionProvider({
   const [failed, setFailed] = useState(false);
   /** Set by endSession: background sync and price fetching are off until restart or sign-out. */
   const [closing, setClosing] = useState(false);
+  /** Set once endSession has wiped: app routes close until sign-out completes (or restart). */
+  const [wiped, setWiped] = useState(false);
   /** Bumped by restart() to create a fresh engine for the same user. */
   const [generation, setGeneration] = useState(0);
   const engineRef = useRef<SyncEngine | null>(null);
@@ -313,6 +318,7 @@ export function SyncSessionProvider({
       setCheckedUser(null);
       setFailed(false);
       setClosing(false);
+      setWiped(false);
       return;
     }
     let cancelled = false;
@@ -346,6 +352,7 @@ export function SyncSessionProvider({
 
   const restart = useCallback(() => {
     setClosing(false);
+    setWiped(false);
     setGeneration((g) => g + 1);
   }, []);
 
@@ -354,16 +361,21 @@ export function SyncSessionProvider({
     await settleWithin(stop(), STOP_TIMEOUT_MS);
     try {
       wipeLocal();
+      // Keep the departing user as the owner of the (now empty) local data: if anything is written
+      // before the sign-out completes, a different next user still finds data that isn't theirs
+      // and wipes it, instead of adopting it as ownerless.
+      if (userId) repo.setLocalOwner(userId);
     } catch (e) {
       console.error('Could not wipe local data', e);
       restart();
       throw e;
     }
-  }, [stop, wipeLocal, restart]);
+    setWiped(true);
+  }, [stop, wipeLocal, restart, repo, userId]);
 
   const pendingCount = useCallback(() => repo.dirtyCount(), [repo]);
 
-  const ready = status === 'signedIn' && userId !== null && checkedUser === userId;
+  const ready = status === 'signedIn' && userId !== null && checkedUser === userId && !wiped;
   const session = useMemo<SyncSession>(
     () => ({
       engine,

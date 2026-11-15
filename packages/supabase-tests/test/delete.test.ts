@@ -65,7 +65,11 @@ describe('deleteAccount', () => {
   });
 
   it('returns 401 when the token does not resolve to a user', async () => {
-    for (const opts of [{ getUserError: { status: 401, message: 'invalid JWT' } }, { user: null }]) {
+    for (const opts of [
+      { getUserError: { status: 401, message: 'invalid JWT' } },
+      { getUserError: { status: 403, message: 'bad_jwt' } },
+      { user: null },
+    ]) {
       const { admin, deleteUser } = fakeAdmin(opts);
       const r = await deleteAccount('Bearer bad', admin);
       expect(r.status).toBe(401);
@@ -73,12 +77,19 @@ describe('deleteAccount', () => {
     }
   });
 
-  it('returns 500 when the auth service cannot be reached', async () => {
-    const { admin, deleteUser } = fakeAdmin({ getUserThrows: true });
+  it('returns 503 when the auth service cannot be reached or fails', async () => {
     const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const r = await deleteAccount('Bearer jwt', admin);
-    expect(r.status).toBe(500);
-    expect(deleteUser).not.toHaveBeenCalled();
+    for (const opts of [
+      { getUserThrows: true },
+      { getUserError: { message: 'fetch failed' } }, // no status: a network failure
+      { getUserError: { status: 0, message: 'Network request failed' } }, // AuthRetryableFetchError
+      { getUserError: { status: 502, message: 'Bad Gateway' } },
+    ]) {
+      const { admin, deleteUser } = fakeAdmin(opts);
+      const r = await deleteAccount('Bearer jwt', admin);
+      expect(r).toEqual({ status: 503, body: { error: 'unavailable' } });
+      expect(deleteUser).not.toHaveBeenCalled();
+    }
     errors.mockRestore();
   });
 

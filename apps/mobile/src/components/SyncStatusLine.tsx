@@ -1,4 +1,5 @@
 import type { SyncStatus } from '@mst/collection-core';
+import { useIsFocused } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { AccessibilityInfo, StyleSheet, Text } from 'react-native';
 import { formatSyncedAgo } from '../sync/relativeTime';
@@ -33,15 +34,21 @@ function StatusText() {
   }, []);
   const text = syncStatusText(status, pending, Date.now());
 
-  // Announce a change of state (syncing, offline, error, idle) to screen readers. Not a live
-  // region: that would also announce the minute tick ("Synced 5 min ago") and every count change.
-  const announced = useRef(status.state);
+  // Announce a change to offline or error to screen readers, from the focused screen's line only
+  // (several screens in the stack each render one). Not a live region: that would also announce the
+  // minute tick ("Synced 5 min ago"), every count change, and every routine sync.
+  // Focus and text are read through refs, not effect triggers: refocusing a screen or the minute
+  // tick must not repeat an old announcement.
+  const focused = useRef(false);
+  focused.current = useIsFocused();
   const latestText = useRef(text);
   latestText.current = text;
+  const announced = useRef(status.state);
   useEffect(() => {
     if (announced.current === status.state) return;
     announced.current = status.state;
-    if (latestText.current) AccessibilityInfo.announceForAccessibility(latestText.current);
+    const alarming = status.state === 'offline' || status.state === 'error';
+    if (alarming && focused.current && latestText.current) AccessibilityInfo.announceForAccessibility(latestText.current);
   }, [status.state]);
 
   if (!text) return null;

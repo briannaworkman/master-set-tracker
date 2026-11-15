@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import type { ReactNode } from 'react';
 import * as SplashScreen from 'expo-splash-screen';
 import RootLayout from '../../app/_layout';
@@ -22,7 +22,7 @@ jest.mock('../auth/AuthProvider', () => ({
   AuthProvider: ({ children }: { children: ReactNode }) => children,
   useAuth: () => ({ status: mockAuthStatus, userId: mockAuthStatus === 'signedIn' ? 'user-1' : null, email: null, provider: null }),
 }));
-const mockSignOut = jest.fn(async () => ({ error: null }));
+const mockSignOut = jest.fn(async (_opts?: unknown): Promise<{ error: Error | null }> => ({ error: null }));
 jest.mock('../backend/supabase', () => ({ getSupabase: () => ({ auth: { signOut: mockSignOut } }) }));
 
 // The real provider renders nothing until native inset metrics arrive.
@@ -130,6 +130,22 @@ it('shows no routes, and offers sign-out, when the local data cannot be checked 
   expect(screen.getByText("Couldn't open your collection")).toBeOnTheScreen();
   await fireEvent.press(screen.getByRole('button', { name: 'Sign out' }));
   expect(mockSignOut).toHaveBeenCalledWith({ scope: 'local' });
+});
+
+it('guards the error screen sign-out against double taps and shows its failure', async () => {
+  mockOwnerError = new Error('database is locked');
+  const logged = jest.spyOn(console, 'error').mockImplementation(() => {});
+  let finish!: (r: { error: Error | null }) => void;
+  mockSignOut.mockImplementationOnce(() => new Promise((r) => (finish = r)));
+  await render(<RootLayout />);
+  logged.mockRestore();
+  const button = screen.getByRole('button', { name: 'Sign out' });
+  await fireEvent.press(button);
+  await fireEvent.press(button);
+  expect(mockSignOut).toHaveBeenCalledTimes(1);
+  await act(async () => finish({ error: new Error('Keychain unavailable') }));
+  expect(screen.getByText("Couldn't sign out. Try again.")).toBeOnTheScreen();
+  expect(screen.getByRole('button', { name: 'Sign out' })).toBeEnabled();
 });
 
 it('keeps the splash up while loading and hides it on the first auth result', async () => {

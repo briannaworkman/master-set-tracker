@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { AccessibilityInfo, ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   confirmDestructive,
   deleteAccountFlow,
   DELETE_ERROR,
   identityText,
+  showError,
   SIGN_OUT_ERROR,
   signOutFlow,
+  type FlowResult,
 } from '../src/account/flows';
 import { useAuth } from '../src/auth/AuthProvider';
 import { getSupabase } from '../src/backend/supabase';
@@ -17,12 +19,14 @@ import { useTheme, type Theme } from '../src/theme/useTheme';
 
 function ActionButton({
   label,
+  hint,
   onPress,
   disabled,
   danger,
   theme,
 }: {
   label: string;
+  hint?: string;
   onPress: () => void;
   disabled: boolean;
   danger?: boolean;
@@ -32,6 +36,7 @@ function ActionButton({
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
+      accessibilityHint={hint}
       accessibilityState={{ disabled }}
       disabled={disabled}
       onPress={onPress}
@@ -68,18 +73,30 @@ export default function AccountScreen() {
     inFlight.current = true;
     setBusy(kind);
     setError(null);
+    let result: FlowResult;
     try {
       const client = getSupabase();
-      const result =
+      result =
         kind === 'signOut'
           ? await signOutFlow(client, { session, syncNow, confirm: confirmDestructive })
           : await deleteAccountFlow(client, { session, confirm: confirmDestructive });
-      if (result === 'failed' && mounted.current) setError(kind === 'signOut' ? SIGN_OUT_ERROR : DELETE_ERROR);
-    } finally {
-      inFlight.current = false;
-      if (mounted.current) setBusy(null);
+    } catch (e) {
+      console.error(kind === 'signOut' ? 'Sign-out failed' : 'Account deletion failed', e);
+      result = { error: kind === 'signOut' ? SIGN_OUT_ERROR : DELETE_ERROR };
+    }
+    inFlight.current = false;
+    if (mounted.current) {
+      setBusy(null);
+      if (typeof result === 'object') setError(result.error);
+    } else if (typeof result === 'object') {
+      // After a wipe this screen was unmounted (the app closes until the sign-out completes).
+      showError(result.error);
     }
   };
+
+  useEffect(() => {
+    if (error) AccessibilityInfo.announceForAccessibility(error);
+  }, [error]);
 
   const disabled = busy !== null;
   return (
@@ -93,7 +110,14 @@ export default function AccountScreen() {
       </View>
       <ActionButton label="Sync now" onPress={() => void syncNow()} disabled={disabled} theme={theme} />
       <ActionButton label="Sign out" onPress={() => void run('signOut')} disabled={disabled} theme={theme} />
-      <ActionButton label="Delete account" onPress={() => void run('delete')} disabled={disabled} danger theme={theme} />
+      <ActionButton
+        label="Delete account"
+        hint="Permanently deletes your account and all your marks"
+        onPress={() => void run('delete')}
+        disabled={disabled}
+        danger
+        theme={theme}
+      />
       {busy ? (
         <ActivityIndicator
           accessibilityLabel={busy === 'signOut' ? 'Signing out' : 'Deleting account'}

@@ -18,7 +18,9 @@ jest.mock('expo-router', () => ({
   useLocalSearchParams: () => ({ id: 'fx' }),
   Stack: { Screen: () => null },
   useFocusEffect: () => {},
+  useIsFocused: () => mockFocused,
 }));
+let mockFocused = true;
 jest.mock('expo-haptics', () => ({ selectionAsync: jest.fn() }));
 
 type NetListener = (s: { isConnected: boolean | null }) => void;
@@ -41,6 +43,7 @@ const advance = (ms: number) => act(() => jest.advanceTimersByTimeAsync(ms));
 const START = new Date('2026-11-15T12:00:00.000Z');
 
 beforeEach(() => {
+  mockFocused = true;
   jest.useFakeTimers({ now: START });
   netListeners.clear();
   appListeners.clear();
@@ -390,13 +393,14 @@ describe('SyncStatusLine', () => {
     expect(screen.getByText('Synced just now')).toBeOnTheScreen();
   });
 
-  it('announces the status only when its state changes, not as the time ages', async () => {
+  it('announces only a change to offline or error, never the time ageing or a return to normal', async () => {
+    // RN's Jest setup already mocks this, so clear calls left by earlier tests.
     const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+    announce.mockClear();
     const env = setup();
     await renderSync(env);
     const line = screen.getByText('Synced just now');
     expect(line.props.accessibilityLiveRegion).toBeUndefined();
-    announce.mockClear();
     await advance(5 * 60_000);
     expect(screen.getByText('Synced 5 min ago')).toBeOnTheScreen();
     expect(announce).not.toHaveBeenCalled();
@@ -404,7 +408,26 @@ describe('SyncStatusLine', () => {
     expect(announce).toHaveBeenCalledTimes(1);
     expect(announce).toHaveBeenCalledWith("Offline — changes will sync when you're back online");
     await advance(5 * 60_000);
+    await setNetwork(true); // syncing, then idle: not announced
+    expect(screen.getByText('Synced just now')).toBeOnTheScreen();
     expect(announce).toHaveBeenCalledTimes(1);
+    env.server.failNext('pull', new Error('pull_changes: permission denied'));
+    await setAppState('background');
+    await setAppState('active');
+    expect(announce).toHaveBeenLastCalledWith("Couldn't sync — will retry");
+    expect(announce).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not announce from a status line on a screen that is not focused', async () => {
+    mockFocused = false;
+    // RN's Jest setup already mocks this, so clear calls left by earlier tests.
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+    announce.mockClear();
+    const env = setup();
+    await renderSync(env);
+    await setNetwork(false);
+    expect(screen.getByText("Offline — changes will sync when you're back online")).toBeOnTheScreen();
+    expect(announce).not.toHaveBeenCalled();
   });
 
   it('renders nothing without a sync session', async () => {

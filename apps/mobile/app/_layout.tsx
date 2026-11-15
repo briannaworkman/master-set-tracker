@@ -6,7 +6,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { bundledCatalog } from '../src/catalog/bundled';
 import { CatalogProvider, createCatalog } from '../src/catalog/CatalogContext';
-import { endAuthSession } from '../src/account/flows';
+import { endAuthSession, SIGN_OUT_ERROR } from '../src/account/flows';
 import { AuthProvider } from '../src/auth/AuthProvider';
 import { getSupabase } from '../src/backend/supabase';
 import { createSupabaseRemote, fetchSetPrices } from '../src/backend/supabase-remote';
@@ -53,6 +53,19 @@ const fetchPrices = (setId: string) => fetchSetPrices(getSupabase(), setId);
 
 /** The signed-in user's local data couldn't be checked or cleared, so it isn't shown. */
 function SessionError({ theme }: { theme: Theme }) {
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const signOut = async () => {
+    if (busy) return;
+    setBusy(true);
+    setFailed(false);
+    const ok = await endAuthSession(getSupabase(), 'local');
+    // On success this screen is replaced by sign-in.
+    if (!ok) {
+      setBusy(false);
+      setFailed(true);
+    }
+  };
   return (
     <View style={[styles.error, { backgroundColor: theme.bg }]}>
       <StatusBar style="auto" />
@@ -62,11 +75,18 @@ function SessionError({ theme }: { theme: Theme }) {
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Sign out"
-        onPress={() => void endAuthSession(getSupabase(), 'local')}
-        style={[styles.errorButton, { borderColor: theme.border, backgroundColor: theme.surface }]}
+        accessibilityState={{ disabled: busy }}
+        disabled={busy}
+        onPress={() => void signOut()}
+        style={[styles.errorButton, { borderColor: theme.border, backgroundColor: theme.surface, opacity: busy ? 0.5 : 1 }]}
       >
         <Text style={[styles.errorButtonText, { color: theme.text }]}>Sign out</Text>
       </Pressable>
+      {failed ? (
+        <Text accessibilityRole="alert" style={[styles.errorDetail, { color: theme.danger }]}>
+          {SIGN_OUT_ERROR}
+        </Text>
+      ) : null}
     </View>
   );
 }
