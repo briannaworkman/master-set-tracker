@@ -1,9 +1,10 @@
 // Deno Edge Function: deletes the calling user's account (and, by cascade, every row of theirs).
-// Invoked by the app with the user's own JWT; the platform gateway verifies it (verify_jwt = true
-// in supabase/config.toml) and the function verifies it again with the service-role client.
+// Invoked by the app with the user's own JWT. The gateway check is off (verify_jwt = false in
+// supabase/config.toml: it is unreliable with the new signing keys); the function itself verifies
+// the JWT with the service-role client (auth.getUser) and deletes only the user it resolves to.
 // SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are provided by Supabase. Not type-checked or run
 // by the Node workspace; the logic lives in ../_shared/delete-account.ts, which is tested.
-import { createClient } from 'npm:@supabase/supabase-js@2';
+import { createClient } from 'npm:@supabase/supabase-js@2.119.0';
 import { deleteAccount } from '../_shared/delete-account.ts';
 
 const CORS = {

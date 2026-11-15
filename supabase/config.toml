@@ -433,6 +433,7 @@ enabled = true
 verify_jwt = false
 
 [functions.delete-account]
-# Called by the app with the signed-in user's own JWT, so the gateway verifies it; the function
-# then re-verifies it with the service-role client and deletes only that user.
-verify_jwt = true
+# Called by the app with the signed-in user's own JWT. The function verifies it itself with the
+# service-role client (auth.getUser(jwt)) and deletes only that user, so the gateway check is off:
+# gateway JWT verification is unreliable with the new asymmetric signing keys.
+verify_jwt = false
