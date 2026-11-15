@@ -224,6 +224,11 @@ export interface SyncSession {
    * and the error is rethrown.
    */
   endSession(): Promise<void>;
+  /**
+   * The auth state is signed in right now (read live, not from the last render's value), so a
+   * flow that outlives its screen can tell whether the device was signed out meanwhile.
+   */
+  isSignedIn(): boolean;
   /** Starts a fresh engine, reopens the app and resumes price fetching for the still-signed-in user. */
   restart(): void;
 }
@@ -236,6 +241,7 @@ const SyncSessionContext = createContext<SyncSession>({
   pricesEnabled: false,
   pendingCount: () => 0,
   endSession: () => Promise.resolve(),
+  isSignedIn: () => false,
   restart: () => {},
 });
 
@@ -300,6 +306,9 @@ export function SyncSessionProvider({
   /** Bumped by restart() to create a fresh engine for the same user. */
   const [generation, setGeneration] = useState(0);
   const engineRef = useRef<SyncEngine | null>(null);
+  const signedInRef = useRef(false);
+  signedInRef.current = status === 'signedIn' && userId !== null;
+  const isSignedIn = useCallback(() => signedInRef.current, []);
   const lastStop = useRef<Promise<void>>(Promise.resolve());
 
   const stop = useCallback(() => {
@@ -385,9 +394,10 @@ export function SyncSessionProvider({
       pricesEnabled: ready && !closing,
       pendingCount,
       endSession,
+      isSignedIn,
       restart,
     }),
-    [engine, stop, ready, failed, closing, pendingCount, endSession, restart],
+    [engine, stop, ready, failed, closing, pendingCount, endSession, isSignedIn, restart],
   );
   const sync = useMemo(() => (engine ? { engine, repo } : null), [engine, repo]);
   // A fixed tree shape, so the app below doesn't remount when the engine comes and goes.

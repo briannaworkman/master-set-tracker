@@ -58,13 +58,25 @@ export function confirmDestructive(title: string, message: string | undefined, a
   });
 }
 
-type AuthClient = Pick<SupabaseClient, 'auth'>;
+type AuthClient = { auth: Pick<SupabaseClient['auth'], 'signOut' | 'getSession'> };
+
+/** True when the client no longer holds a session (this device is signed out). */
+async function sessionGone(client: AuthClient): Promise<boolean> {
+  try {
+    const { data } = await client.auth.getSession();
+    return data.session === null;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Ends the Supabase session. `global` first revokes the refresh token on the server; if that fails
  * (offline, server error) or takes over GLOBAL_SIGN_OUT_TIMEOUT_MS, the session is cleared on this
- * device with scope 'local' (which removes the stored session before any request).
- * Resolves false only if even the local sign-out failed.
+ * device with scope 'local'. auth-js's local sign-out removes the stored session (firing
+ * SIGNED_OUT) before its own revoke request, and still reports that request's failure (e.g.
+ * offline) as an error, so an error with no stored session left counts as signed out.
+ * Resolves false only if this device is still signed in.
  */
 export async function endAuthSession(client: AuthClient, scope: 'global' | 'local'): Promise<boolean> {
   if (scope === 'global') {
@@ -82,10 +94,11 @@ export async function endAuthSession(client: AuthClient, scope: 'global' | 'loca
   }
   try {
     const { error } = await client.auth.signOut({ scope: 'local' });
-    return !error;
+    if (!error) return true;
   } catch {
-    return false;
+    // fall through to the session check
   }
+  return sessionGone(client);
 }
 
 /** 'done', 'cancelled', or the error copy to show. */
@@ -113,7 +126,7 @@ export async function signOutFlow(client: AuthClient, { session, syncNow, confir
   } catch {
     return { error: SIGN_OUT_ERROR };
   }
-  if (await endAuthSession(client, 'global')) return 'done';
+  if ((await endAuthSession(client, 'global')) || !session.isSignedIn()) return 'done';
   // Still signed in on this device: bring the (now empty) session back so it pulls from the server.
   session.restart();
   return { error: SIGN_OUT_ERROR };
@@ -141,7 +154,7 @@ export async function deleteAccountFlow(
   } catch {
     // The account is gone. Anything left locally is wiped by the next sign-in's owner check.
   }
-  if (await endAuthSession(client, 'local')) return 'done';
+  if ((await endAuthSession(client, 'local')) || !session.isSignedIn()) return 'done';
   // Still signed in on this device: reopen the app rather than leave it closed.
   session.restart();
   return { error: SIGN_OUT_ERROR };

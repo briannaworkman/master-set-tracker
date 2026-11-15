@@ -23,7 +23,9 @@ jest.mock('../auth/AuthProvider', () => ({
   useAuth: () => ({ status: mockAuthStatus, userId: mockAuthStatus === 'signedIn' ? 'user-1' : null, email: null, provider: null }),
 }));
 const mockSignOut = jest.fn(async (_opts?: unknown): Promise<{ error: Error | null }> => ({ error: null }));
-jest.mock('../backend/supabase', () => ({ getSupabase: () => ({ auth: { signOut: mockSignOut } }) }));
+let mockStoredSession = true;
+const mockGetSession = jest.fn(async () => ({ data: { session: mockStoredSession ? {} : null }, error: null }));
+jest.mock('../backend/supabase', () => ({ getSupabase: () => ({ auth: { signOut: mockSignOut, getSession: mockGetSession } }) }));
 
 // The real provider renders nothing until native inset metrics arrive.
 jest.mock('react-native-safe-area-context', () => jest.requireActual('react-native-safe-area-context/jest/mock').default);
@@ -52,6 +54,7 @@ beforeEach(() => {
   mockOwnerError = null;
   mockAuthStatus = 'signedIn';
   mockSignOut.mockClear();
+  mockStoredSession = true;
 });
 
 it('titles the home screen "My Sets" so back buttons never read "index"', async () => {
@@ -146,6 +149,20 @@ it('guards the error screen sign-out against double taps and shows its failure',
   await act(async () => finish({ error: new Error('Keychain unavailable') }));
   expect(screen.getByText("Couldn't sign out. Try again.")).toBeOnTheScreen();
   expect(screen.getByRole('button', { name: 'Sign out' })).toBeEnabled();
+});
+
+it('treats the error screen sign-out as done when the session is gone despite a failed revoke', async () => {
+  mockOwnerError = new Error('database is locked');
+  const logged = jest.spyOn(console, 'error').mockImplementation(() => {});
+  mockSignOut.mockImplementationOnce(async () => {
+    mockStoredSession = false; // auth-js removed the session, then the revoke request failed
+    return { error: new Error('Network request failed') };
+  });
+  await render(<RootLayout />);
+  logged.mockRestore();
+  await fireEvent.press(screen.getByRole('button', { name: 'Sign out' }));
+  expect(mockGetSession).toHaveBeenCalled();
+  expect(screen.queryByText("Couldn't sign out. Try again.")).toBeNull();
 });
 
 it('keeps the splash up while loading and hides it on the first auth result', async () => {
