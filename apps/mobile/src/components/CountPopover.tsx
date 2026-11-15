@@ -65,6 +65,8 @@ export function CountPopover({
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={[styles.backdrop, { backgroundColor: theme.overlay }]}>
+        {/* A sibling behind the card, so taps on the card don't reach it. */}
+        <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={onClose} style={StyleSheet.absoluteFill} />
         <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
           <Text style={[styles.title, { color: theme.text }]}>{title}</Text>
           <Text style={[styles.version, { color: theme.muted }]}>{versionLabel}</Text>

@@ -95,6 +95,19 @@ it('disables minus at zero and never goes negative', async () => {
   expect(onChange).toHaveBeenCalledWith(1);
 });
 
+it('closes the popover when the backdrop is tapped, but not when the card is', async () => {
+  const onClose = jest.fn();
+  await render(
+    <TestProviders>
+      <CountPopover visible title="Bulbasaur 001" versionLabel="Normal" count={1} onChange={jest.fn()} onClose={onClose} />
+    </TestProviders>,
+  );
+  await fireEvent.press(screen.getByText('Bulbasaur 001'));
+  expect(onClose).not.toHaveBeenCalled();
+  await fireEvent.press(screen.getByRole('button', { name: 'Close' }));
+  expect(onClose).toHaveBeenCalledTimes(1);
+});
+
 it('falls back to the placeholder on image load error and retries for a new url', async () => {
   const withImg = { ...bulbasaur, imageUrl: 'https://example.test/a.png' };
   const { props, view } = await tile(withImg);
