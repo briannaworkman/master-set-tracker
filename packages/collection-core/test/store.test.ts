@@ -62,6 +62,17 @@ describe('CollectionStore', () => {
     expect(store.getCounts('a')).toBe(counts);
   });
 
+  it('untrack then track restores hidden categories and counts', () => {
+    store.track('a');
+    store.setCount('a', 'c-001', 'normal', 2);
+    store.setHidden('a', ['promos']);
+    store.untrack('a');
+    expect(store.getTracked()).toEqual([]);
+    store.track('a');
+    expect(store.getTracked()).toEqual([{ setId: 'a', hiddenCategoryIds: ['promos'], addedAt: '2026-01-01T00:00:00Z' }]);
+    expect(store.getCounts('a')).toEqual({ 'c-001:normal': 2 });
+  });
+
   it('setCount clamps and persists', () => {
     store.setCount('a', 'c-001', 'normal', 5000);
     expect(store.getCounts('a')['c-001:normal']).toBe(999);
@@ -131,6 +142,6 @@ describe('migrate', () => {
     const db = createBetterSqliteDb();
     migrate(db);
     expect(() => migrate(db)).not.toThrow();
-    expect(db.first<{ user_version: number }>('PRAGMA user_version')!.user_version).toBe(1);
+    expect(db.first<{ user_version: number }>('PRAGMA user_version')!.user_version).toBe(2);
   });
 });

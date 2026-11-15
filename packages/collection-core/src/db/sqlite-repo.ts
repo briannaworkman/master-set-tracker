@@ -17,7 +17,7 @@ export function createSqliteRepo(db: SqlDb): CollectionRepo {
     listTracked() {
       return db
         .all<{ set_id: string; hidden_category_ids: string; added_at: string }>(
-          'SELECT set_id, hidden_category_ids, added_at FROM tracked_sets ORDER BY added_at ASC, rowid ASC',
+          'SELECT set_id, hidden_category_ids, added_at FROM tracked_sets WHERE removed_at IS NULL ORDER BY added_at ASC, rowid ASC',
         )
         .map((r): TrackedSet => ({
           setId: r.set_id,
@@ -26,17 +26,26 @@ export function createSqliteRepo(db: SqlDb): CollectionRepo {
         }));
     },
     trackSet(setId, now) {
-      db.run('INSERT OR IGNORE INTO tracked_sets (set_id, hidden_category_ids, added_at) VALUES (?, ?, ?)', [
-        setId,
-        '[]',
+      db.run(
+        `INSERT INTO tracked_sets (set_id, hidden_category_ids, added_at, updated_at) VALUES (?, '[]', ?, ?)
+         ON CONFLICT (set_id) DO UPDATE SET removed_at = NULL, added_at = excluded.added_at, updated_at = excluded.updated_at
+         WHERE tracked_sets.removed_at IS NOT NULL`,
+        [setId, now, now],
+      );
+    },
+    untrackSet(setId, now) {
+      db.run('UPDATE tracked_sets SET removed_at = ?, updated_at = ? WHERE set_id = ? AND removed_at IS NULL', [
         now,
+        now,
+        setId,
       ]);
     },
-    untrackSet(setId) {
-      db.run('DELETE FROM tracked_sets WHERE set_id = ?', [setId]);
-    },
-    setHiddenCategories(setId, ids) {
-      db.run('UPDATE tracked_sets SET hidden_category_ids = ? WHERE set_id = ?', [JSON.stringify(ids), setId]);
+    setHiddenCategories(setId, ids, now) {
+      db.run(
+        `UPDATE tracked_sets SET hidden_category_ids = ?, updated_at = ?
+         WHERE set_id = ? AND removed_at IS NULL AND hidden_category_ids IS NOT ?`,
+        [JSON.stringify(ids), now, setId, JSON.stringify(ids)],
+      );
     },
     countsForSet(setId) {
       const out: Record<VersionKey, number> = {};

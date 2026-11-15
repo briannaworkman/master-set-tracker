@@ -17,8 +17,23 @@ CREATE TABLE IF NOT EXISTS collection (
 CREATE INDEX IF NOT EXISTS collection_set_idx ON collection (set_id);
 `;
 
+/**
+ * v2: tracked_sets rows are soft-deleted (removed_at) so hidden categories survive removal,
+ * and carry updated_at for sync. Existing rows take updated_at = added_at.
+ */
+const SCHEMA_V2 = `
+ALTER TABLE tracked_sets ADD COLUMN removed_at TEXT;
+ALTER TABLE tracked_sets ADD COLUMN updated_at TEXT NOT NULL DEFAULT '';
+`;
+
 /** Step N upgrades a database at user_version N-1 to N. Each step runs in its own transaction. */
-const STEPS: Array<(db: SqlDb) => void> = [(db) => db.exec(SCHEMA_V1)];
+const STEPS: Array<(db: SqlDb) => void> = [
+  (db) => db.exec(SCHEMA_V1),
+  (db) => {
+    db.exec(SCHEMA_V2);
+    db.run('UPDATE tracked_sets SET updated_at = added_at');
+  },
+];
 
 export function migrate(db: SqlDb): void {
   const row = db.first<{ user_version: number }>('PRAGMA user_version');

@@ -38,12 +38,12 @@ export class CollectionStore {
   }
 
   untrack(setId: string): void {
-    this.repo.untrackSet(setId);
+    this.repo.untrackSet(setId, this.now());
     this.refreshTracked();
   }
 
   setHidden(setId: string, ids: string[]): void {
-    this.repo.setHiddenCategories(setId, ids);
+    this.repo.setHiddenCategories(setId, ids, this.now());
     this.refreshTracked();
   }
 
