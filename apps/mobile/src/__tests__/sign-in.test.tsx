@@ -3,7 +3,9 @@ import type { ReactNode } from 'react';
 import { AuthProvider, useAuth } from '../auth/AuthProvider';
 import SignInEmailScreen from '../../app/sign-in-email';
 import SignInScreen from '../../app/sign-in';
-import { Text } from 'react-native';
+import { AppState, Platform, Text } from 'react-native';
+import * as Apple from 'expo-apple-authentication';
+import * as Crypto from 'expo-crypto';
 import { TestProviders } from '../test/TestProviders';
 
 const mockPush = jest.fn();
@@ -30,6 +32,7 @@ jest.mock('../backend/config', () => ({
   },
 }));
 
+jest.mock('expo-splash-screen', () => ({ preventAutoHideAsync: jest.fn(async () => true), hideAsync: jest.fn(async () => true) }));
 jest.mock('expo-crypto', () => ({
   getRandomBytes: () => new Uint8Array(32).fill(1),
   digestStringAsync: jest.fn(async () => 'hashed-nonce'),
@@ -56,6 +59,8 @@ jest.mock('expo-apple-authentication', () => {
 const mockGoogleSignIn = jest.fn();
 const mockGoogleConfigure = jest.fn();
 jest.mock('@react-native-google-signin/google-signin', () => ({
+  statusCodes: { SIGN_IN_CANCELLED: 'SIGN_IN_CANCELLED' },
+  isErrorWithCode: (e: unknown) => typeof e === 'object' && e !== null && 'code' in e,
   GoogleSignin: {
     configure: (...a: unknown[]) => mockGoogleConfigure(...a),
     hasPlayServices: jest.fn(async () => true),
@@ -105,6 +110,7 @@ describe('sign-in screen', () => {
     await renderSignIn();
     await fireEvent.press(screen.getByText('Apple button'));
     const raw = '01'.repeat(32);
+    expect(Crypto.digestStringAsync).toHaveBeenCalledWith('SHA-256', raw);
     expect(mockAppleSignIn).toHaveBeenCalledWith(expect.objectContaining({ nonce: 'hashed-nonce' }));
     expect(mockClient.auth.signInWithIdToken).toHaveBeenCalledWith({
       provider: 'apple',
@@ -171,6 +177,58 @@ describe('sign-in screen', () => {
     expect(mockGoogleSignIn).toHaveBeenCalledTimes(1);
   });
 
+  it('hides the Apple button when Apple sign-in is unavailable', async () => {
+    (Apple.isAvailableAsync as jest.Mock).mockResolvedValueOnce(false);
+    await render(
+      <TestProviders>
+        <SignInScreen />
+      </TestProviders>,
+    );
+    expect(screen.queryByText('Apple button')).toBeNull();
+    expect(screen.getByLabelText('Continue with Google')).toBeOnTheScreen();
+  });
+
+  describe('per platform', () => {
+    const original = Platform.OS;
+    afterEach(() => {
+      Platform.OS = original;
+    });
+    const renderPlain = () =>
+      render(
+        <TestProviders>
+          <SignInScreen />
+        </TestProviders>,
+      );
+
+    it('web shows email only', async () => {
+      Platform.OS = 'web';
+      await renderPlain();
+      expect(screen.queryByText('Apple button')).toBeNull();
+      expect(screen.queryByLabelText('Continue with Google')).toBeNull();
+      expect(screen.getByLabelText('Continue with email')).toBeOnTheScreen();
+    });
+
+    it('iOS hides Google without the iOS client id', async () => {
+      mockConfig.googleIosClientId = null;
+      await renderPlain();
+      expect(screen.queryByLabelText('Continue with Google')).toBeNull();
+    });
+
+    it('Android needs only the web client id', async () => {
+      Platform.OS = 'android';
+      mockConfig.googleIosClientId = null;
+      await renderPlain();
+      expect(screen.getByLabelText('Continue with Google')).toBeOnTheScreen();
+    });
+
+    it('Android hides Google without the web client id', async () => {
+      Platform.OS = 'android';
+      mockConfig.googleWebClientId = null;
+      await renderPlain();
+      expect(screen.queryByLabelText('Continue with Google')).toBeNull();
+    });
+  });
+
   it('navigates to the email screen', async () => {
     await renderSignIn();
     await fireEvent.press(screen.getByLabelText('Continue with email'));
@@ -213,7 +271,24 @@ describe('email sign-in', () => {
     expect(mockClient.auth.verifyOtp).toHaveBeenCalledWith({ email: 'me@example.com', token: '123456', type: 'email' });
   });
 
-  it('verifies with the Verify button for a pasted code', async () => {
+  it('verifies with the Verify button', async () => {
+    await sendCode();
+    const field = screen.getByLabelText('6-digit code');
+    await fireEvent.changeText(field, '123456');
+    mockClient.auth.verifyOtp.mockClear();
+    await fireEvent.press(screen.getByLabelText('Verify'));
+    expect(mockClient.auth.verifyOtp).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the connection message, not the wrong-code one, for network failures', async () => {
+    mockClient.auth.verifyOtp.mockRejectedValue(new TypeError('Network request failed'));
+    await sendCode();
+    await fireEvent.changeText(screen.getByLabelText('6-digit code'), '111111');
+    expect(screen.getByText(ERROR)).toBeOnTheScreen();
+    expect(screen.queryByText("That code didn't work. Check it and try again.")).toBeNull();
+  });
+
+  it('verifies the incomplete code message path is disabled for a pasted short code', async () => {
     await sendCode();
     await fireEvent.changeText(screen.getByLabelText('6-digit code'), '12345');
     expect(screen.getByLabelText('Verify')).toBeDisabled();
@@ -258,15 +333,25 @@ describe('AuthProvider', () => {
     <AuthProvider client={mockClient as never}>{children}</AuthProvider>
   );
 
-  it('is loading, then follows getSession and auth events', async () => {
+  beforeEach(() => {
+    jest.spyOn(AppState, 'addEventListener').mockReturnValue({ remove: jest.fn() } as never);
+  });
+  afterEach(() => jest.restoreAllMocks());
+
+  it('is loading until getSession resolves, then follows auth events', async () => {
     let listener!: (e: string, s: unknown) => void;
     const unsubscribe = jest.fn();
     mockClient.auth.onAuthStateChange.mockImplementation((cb) => {
       listener = cb;
       return { data: { subscription: { unsubscribe } } };
     });
-    mockClient.auth.getSession.mockResolvedValue({ data: { session: null } });
+    let resolveSession!: (v: unknown) => void;
+    mockClient.auth.getSession.mockReturnValue(new Promise((r) => (resolveSession = r)));
+    const remove = jest.fn();
+    jest.spyOn(AppState, 'addEventListener').mockReturnValue({ remove } as never);
     const { unmount } = await render(wrap(<Probe />));
+    expect(screen.getByText('loading|null|null|null')).toBeOnTheScreen();
+    await act(async () => resolveSession({ data: { session: null } }));
     expect(screen.getByText('signedOut|null|null|null')).toBeOnTheScreen();
     await act(async () =>
       listener('SIGNED_IN', { user: { id: 'u1', email: 'a@b.co', app_metadata: { provider: 'apple' } } }),
@@ -276,6 +361,7 @@ describe('AuthProvider', () => {
     expect(screen.getByText('signedOut|null|null|null')).toBeOnTheScreen();
     await unmount();
     expect(unsubscribe).toHaveBeenCalled();
+    expect(remove).toHaveBeenCalled();
     expect(mockClient.auth.stopAutoRefresh).toHaveBeenCalled();
   });
 

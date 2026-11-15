@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { isNetworkError } from '@mst/collection-core';
 import * as Crypto from 'expo-crypto';
 import { Platform } from 'react-native';
 import { backendConfig } from '../backend/config';
@@ -11,7 +12,10 @@ const loadGoogle = (): GoogleModule => require('@react-native-google-signin/goog
 
 /** True when Google sign-in can be offered on this platform and build. */
 export function googleAvailable(): boolean {
-  return Platform.OS !== 'web' && Boolean(backendConfig.googleIosClientId || backendConfig.googleWebClientId);
+  // The web client id is the audience Supabase verifies on both platforms.
+  if (!backendConfig.googleWebClientId) return false;
+  if (Platform.OS === 'ios') return Boolean(backendConfig.googleIosClientId);
+  return Platform.OS === 'android';
 }
 
 function toHex(bytes: Uint8Array): string {
@@ -59,7 +63,8 @@ export async function signInWithGoogle(client: SupabaseClient): Promise<void> {
     if (Platform.OS === 'android') await GoogleSignin.hasPlayServices();
     response = await GoogleSignin.signIn();
   } catch (e) {
-    if ((e as { code?: string })?.code === 'SIGN_IN_CANCELLED') return;
+    const { isErrorWithCode, statusCodes } = loadGoogle();
+    if (isErrorWithCode(e) && e.code === statusCodes.SIGN_IN_CANCELLED) return;
     throw e;
   }
   if (response.type === 'cancelled') return;
@@ -74,7 +79,12 @@ export async function sendEmailCode(client: SupabaseClient, email: string): Prom
   if (error) throw error;
 }
 
+/** Thrown for a rejected code (invalid/expired), as opposed to a network failure. */
+export class InvalidCodeError extends Error {}
+
 export async function verifyEmailCode(client: SupabaseClient, email: string, code: string): Promise<void> {
-  const { error } = await client.auth.verifyOtp({ email, token: code, type: 'email' });
-  if (error) throw error;
+  const result = await client.auth.verifyOtp({ email, token: code, type: 'email' });
+  if (!result.error) return;
+  if (isNetworkError(result.error) || result.error.name === 'AuthRetryableFetchError') throw result.error;
+  throw new InvalidCodeError(result.error.message);
 }

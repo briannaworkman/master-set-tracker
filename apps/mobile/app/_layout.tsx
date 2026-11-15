@@ -1,7 +1,8 @@
 import { emptyPriceBook } from '@mst/collection-core';
 import { Stack } from 'expo-router';
+import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { bundledCatalog } from '../src/catalog/bundled';
@@ -13,6 +14,8 @@ import { getAppStore, type OpenedStore } from '../src/db/openStore';
 import { StoreProvider } from '../src/db/StoreContext';
 import { PriceProvider } from '../src/prices/PriceContext';
 import { useTheme, type Theme } from '../src/theme/useTheme';
+
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
 const catalog = createCatalog(bundledCatalog, { includeDrafts: __DEV__ });
 
@@ -47,6 +50,9 @@ function StoreError({ error, theme }: { error: unknown; theme: Theme }) {
 /** Signed out: only the sign-in routes exist, so deep links to app routes land on sign-in. */
 function AuthGate({ theme }: { theme: Theme }) {
   const { status } = useAuth();
+  useEffect(() => {
+    if (status !== 'loading') SplashScreen.hideAsync().catch(() => {});
+  }, [status]);
   if (status === 'loading') return <View style={[styles.splash, { backgroundColor: theme.bg }]} />;
   const signedIn = status === 'signedIn';
   return (
@@ -62,6 +68,9 @@ function AuthGate({ theme }: { theme: Theme }) {
         {/* The title is never shown here, but iOS uses it as the back-button label. */}
         <Stack.Screen name="index" options={{ title: 'My Sets', headerShown: false }} />
         <Stack.Screen name="browse" options={{ title: 'Add a set' }} />
+        {/* Every app route must be declared here: undeclared routes are not guarded. */}
+        <Stack.Screen name="set/[id]/index" />
+        <Stack.Screen name="set/[id]/settings" />
         <Stack.Screen name="set/[id]/card/[cardId]" options={{ presentation: 'modal' }} />
       </Stack.Protected>
       <Stack.Protected guard={!signedIn}>
@@ -80,16 +89,16 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <AuthProvider client={getSupabase()}>
-      <CatalogProvider catalog={catalog}>
-        <StoreProvider store={store}>
-          <PriceProvider priceBook={emptyPriceBook}>
-            <PersistenceContext.Provider value={persistent}>
-              <StatusBar style="auto" />
-              <AuthGate theme={theme} />
-            </PersistenceContext.Provider>
-          </PriceProvider>
-        </StoreProvider>
-      </CatalogProvider>
+        <CatalogProvider catalog={catalog}>
+          <StoreProvider store={store}>
+            <PriceProvider priceBook={emptyPriceBook}>
+              <PersistenceContext.Provider value={persistent}>
+                <StatusBar style="auto" />
+                <AuthGate theme={theme} />
+              </PersistenceContext.Provider>
+            </PriceProvider>
+          </StoreProvider>
+        </CatalogProvider>
       </AuthProvider>
     </SafeAreaProvider>
   );

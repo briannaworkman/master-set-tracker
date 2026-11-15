@@ -41,7 +41,7 @@ Send Claude: the bundle identifier and the Team ID.
 3. **Credentials → Create credentials → OAuth client ID**, twice:
    - **iOS**: bundle ID = the one from step 2. Copy its **client ID** (*public*).
    - **Web application**: no settings needed. Copy its **client ID** (*public*) and **client secret** (*secret*).
-4. In Supabase: **Authentication → Sign In / Providers → Google** → enable it, paste the **Web client ID** and **Web client secret** there (you type the secret into Supabase directly), and add the **iOS client ID** to *Authorized Client IDs* (comma-separated after the web one).
+4. In Supabase: **Authentication → Sign In / Providers → Google** → enable it, paste the **Web client ID** and **Web client secret** there (you type the secret into Supabase directly), and add the **iOS client ID** to *Authorized Client IDs* (comma-separated after the web one). Also turn on **Skip nonce check** (the iOS Google SDK adds a nonce Supabase can't verify).
 
 Send Claude: the iOS client ID and the Web client ID (not the secret).
 

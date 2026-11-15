@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { sendEmailCode, verifyEmailCode } from '../src/auth/providers';
+import { InvalidCodeError, sendEmailCode, verifyEmailCode } from '../src/auth/providers';
 import { getSupabase } from '../src/backend/supabase';
 import { useTheme } from '../src/theme/useTheme';
 
 const RESEND_SECONDS = 60;
 const WRONG_CODE = "That code didn't work. Check it and try again.";
+const GENERIC_ERROR = "Couldn't sign in. Check your connection and try again.";
 const SEND_ERROR = "Couldn't send the code. Check your connection and try again.";
 
 export function isValidEmail(value: string): boolean {
@@ -20,13 +21,16 @@ export default function SignInEmailScreen() {
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [resendIn, setResendIn] = useState(0);
+  const [resendAt, setResendAt] = useState<number | null>(null);
+  const [now, setNow] = useState(() => Date.now());
   const inFlight = useRef(false);
-  const counting = resendIn > 0;
 
+  const resendIn = resendAt === null ? 0 : Math.max(0, Math.ceil((resendAt - now) / 1000));
+  const counting = resendIn > 0;
   useEffect(() => {
     if (!counting) return;
-    const t = setInterval(() => setResendIn((s) => Math.max(0, s - 1)), 1000);
+    // The deadline is absolute, so a backgrounded app can't stretch the wait.
+    const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, [counting]);
 
@@ -52,7 +56,9 @@ export default function SignInEmailScreen() {
         await sendEmailCode(getSupabase(), target);
         setSentTo(target);
         setCode('');
-        setResendIn(RESEND_SECONDS);
+        const t = Date.now();
+        setNow(t);
+        setResendAt(t + RESEND_SECONDS * 1000);
       } catch {
         setError(SEND_ERROR);
       }
@@ -63,8 +69,8 @@ export default function SignInEmailScreen() {
     return guarded(async () => {
       try {
         await verifyEmailCode(getSupabase(), sentTo, value);
-      } catch {
-        setError(WRONG_CODE);
+      } catch (e) {
+        setError(e instanceof InvalidCodeError ? WRONG_CODE : GENERIC_ERROR);
       }
     });
   };

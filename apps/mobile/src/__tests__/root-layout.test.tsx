@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react-native';
 import type { ReactNode } from 'react';
+import * as SplashScreen from 'expo-splash-screen';
 import RootLayout from '../../app/_layout';
 
 const mockScreens: { name: string; options?: Record<string, unknown> }[] = [];
@@ -13,6 +14,8 @@ jest.mock('expo-router', () => {
   Stack.Protected = ({ guard, children }: { guard: boolean; children: ReactNode }) => (guard ? children : null);
   return { Stack };
 });
+
+jest.mock('expo-splash-screen', () => ({ preventAutoHideAsync: jest.fn(async () => true), hideAsync: jest.fn(async () => true) }));
 
 let mockAuthStatus = 'signedIn';
 jest.mock('../auth/AuthProvider', () => ({
@@ -73,5 +76,41 @@ it('renders no routes while the session is loading', async () => {
 
 it('registers only the app routes while signed in', async () => {
   await render(<RootLayout />);
-  expect(mockScreens.map((s) => s.name)).toEqual(['index', 'browse', 'set/[id]/card/[cardId]']);
+  expect(mockScreens.map((s) => s.name)).toEqual([
+    'index',
+    'browse',
+    'set/[id]/index',
+    'set/[id]/settings',
+    'set/[id]/card/[cardId]',
+  ]);
+});
+
+it('declares every route file in the signed-in or sign-in group', async () => {
+  const fs = require('fs') as typeof import('fs');
+  const path = require('path') as typeof import('path');
+  const root = path.join(__dirname, '../../app');
+  const files: string[] = [];
+  const walk = (dir: string) =>
+    fs.readdirSync(dir, { withFileTypes: true }).forEach((e) =>
+      e.isDirectory() ? walk(path.join(dir, e.name)) : files.push(path.relative(root, path.join(dir, e.name))),
+    );
+  walk(root);
+  const routes = files.map((f) => f.replace(/\.tsx?$/, '')).filter((f) => f !== '_layout');
+  await render(<RootLayout />);
+  const signedIn = mockScreens.map((s) => s.name);
+  mockScreens.length = 0;
+  mockAuthStatus = 'signedOut';
+  await render(<RootLayout />);
+  const declared = [...signedIn, ...mockScreens.map((s) => s.name)];
+  expect([...declared].sort()).toEqual([...routes].sort());
+});
+
+it('keeps the splash up while loading and hides it on the first auth result', async () => {
+  (SplashScreen.hideAsync as jest.Mock).mockClear();
+  mockAuthStatus = 'loading';
+  const view = await render(<RootLayout />);
+  expect(SplashScreen.hideAsync).not.toHaveBeenCalled();
+  mockAuthStatus = 'signedOut';
+  await view.rerender(<RootLayout />);
+  expect(SplashScreen.hideAsync).toHaveBeenCalledTimes(1);
 });
