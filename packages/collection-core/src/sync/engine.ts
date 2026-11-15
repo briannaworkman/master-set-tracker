@@ -1,6 +1,7 @@
 import type { CollectionRepo } from '../db/sql-db';
 import type { CollectionStore } from '../store';
 import type { LocalChanges } from './types';
+import { partitionPushable } from './validate';
 
 export interface SyncRemote {
   /** Uploads rows; the server applies each one only if it is strictly newer than its own. */
@@ -234,7 +235,10 @@ export class SyncEngine {
 
   /**
    * Pushes the rows dirty at the start in oldest-first batches. The batch count is fixed up front
-   * so writes made meanwhile (left for the follow-up run) can't keep the loop going.
+   * so writes made meanwhile (left for the follow-up run) can't keep the loop going. Rows the
+   * server would reject (push_changes refuses the whole call for one bad row) are quarantined:
+   * marked synced without being sent, with a warning, so one bad row can't block sync forever.
+   * They stay on this device.
    */
   private async pushDirty(): Promise<void> {
     const batches = Math.ceil(this.repo.dirtyCount() / this.pushBatch);
@@ -242,9 +246,22 @@ export class SyncEngine {
       this.throwIfStopped();
       const snapshot = this.repo.dirtyChanges(this.pushBatch);
       if (snapshot.collection.length === 0 && snapshot.tracked.length === 0) return;
-      await this.remote.push(snapshot);
+      const { pushable, rejected } = partitionPushable(snapshot);
+      const bad = rejected.collection.length + rejected.tracked.length;
+      if (bad > 0) {
+        console.warn(
+          `SyncEngine: ${bad} local change(s) the server would reject were marked synced without uploading`,
+          {
+            collection: rejected.collection.map((r) => `${String(r.cardId)}|${String(r.kind)}`),
+            tracked: rejected.tracked.map((r) => String(r.setId)),
+          },
+        );
+        this.repo.markSynced(rejected);
+      }
+      if (pushable.collection.length === 0 && pushable.tracked.length === 0) continue;
+      await this.remote.push(pushable);
       this.throwIfStopped();
-      this.repo.markSynced(snapshot);
+      this.repo.markSynced(pushable);
     }
   }
 

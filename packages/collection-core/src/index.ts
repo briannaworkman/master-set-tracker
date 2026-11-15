@@ -9,5 +9,6 @@ export * from './db/memory-repo';
 export * from './store';
 export * from './sync/types';
 export * from './sync/engine';
+export * from './sync/validate';
 export * from './prices/price-variant';
 export * from './prices/price-cache';

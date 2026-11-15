@@ -52,6 +52,44 @@ const crow = (cardId: string, count: number, updatedAt: string, setId = 's1'): C
 const other = (k: RepoKind): RepoKind => (k === 'memory' ? 'sqlite' : 'memory');
 
 describe.each<RepoKind>(['memory', 'sqlite'])('SyncEngine over a %s repo', (kind) => {
+  it('quarantines rows the server would reject: marks them synced without upload, pushes the rest', async () => {
+    const server = new FakeSyncRemote();
+    const a = makeDevice(server, kind);
+    a.store.track('s1');
+    a.store.tap('s1', 's1-001', 'normal');
+    // A device clock past year 9999: toISOString() gives '+010000-…', which push_changes rejects.
+    a.repo.setCount('s1', 's1-002', 'normal', 1, '+010000-01-01T00:00:00.000Z');
+    expect(a.repo.dirtyCount()).toBe(3);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const status = await a.engine.syncNow();
+
+    expect(status.state).toBe('idle');
+    expect(server.pushCalls).toHaveLength(1);
+    expect(server.pushCalls[0]!.collection.map((r) => r.cardId)).toEqual(['s1-001']);
+    expect(server.snapshot().collection.map((r) => r.cardId)).toEqual(['s1-001']);
+    expect(a.repo.dirtyCount()).toBe(0);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0]![0])).toMatch(/1 local change/);
+    warn.mockRestore();
+    // The row stays on this device.
+    expect(a.repo.countsForSet('s1')).toMatchObject({ 's1-002:normal': 1 });
+  });
+
+  it('makes no push call when every dirty row would be rejected, and does not block later syncs', async () => {
+    const server = new FakeSyncRemote();
+    const a = makeDevice(server, kind);
+    a.repo.setCount('s1', 's1-002', 'normal', 1, '+010000-01-01T00:00:00.000Z');
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect((await a.engine.syncNow()).state).toBe('idle');
+    expect(server.pushCalls).toHaveLength(0);
+    expect(a.repo.dirtyCount()).toBe(0);
+    a.store.track('s1');
+    expect((await a.engine.syncNow()).state).toBe('idle');
+    expect(server.snapshot().tracked.map((r) => r.setId)).toEqual(['s1']);
+    warn.mockRestore();
+  });
+
   it('uploads local changes on first sync and downloads remote ones', async () => {
     const server = new FakeSyncRemote();
     const a = makeDevice(server, kind);
