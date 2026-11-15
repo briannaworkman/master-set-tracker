@@ -4,6 +4,7 @@ import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useCatalog } from '../src/catalog/CatalogContext';
 import { SetRow } from '../src/components/SetRow';
+import { SyncStatusLine } from '../src/components/SyncStatusLine';
 import { WebPreviewNote } from '../src/components/WebPreviewNote';
 import { useCounts, useTracked } from '../src/db/StoreContext';
 import { useTheme } from '../src/theme/useTheme';
@@ -52,9 +53,12 @@ export default function HomeScreen() {
     <SafeAreaView edges={['top']} style={[styles.screen, { backgroundColor: theme.bg }]}>
       <WebPreviewNote />
       <View style={styles.header}>
-        <Text accessibilityRole="header" style={[styles.title, { color: theme.text }]}>
-          My Sets
-        </Text>
+        <View style={styles.titleBlock}>
+          <Text accessibilityRole="header" style={[styles.title, { color: theme.text }]}>
+            My Sets
+          </Text>
+          <SyncStatusLine />
+        </View>
         {hasVisible ? <AddSetButton /> : null}
       </View>
       {hasVisible ? (
@@ -71,7 +75,8 @@ export default function HomeScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12 },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingHorizontal: 16, paddingVertical: 12 },
+  titleBlock: { flexShrink: 1, gap: 2 },
   title: { fontSize: 28, fontWeight: '700' },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 16 },
   emptyText: { fontSize: 17 },

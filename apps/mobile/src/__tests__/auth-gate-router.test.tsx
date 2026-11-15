@@ -15,8 +15,9 @@ jest.mock('expo-splash-screen', () => ({ preventAutoHideAsync: jest.fn(async () 
 jest.mock('expo-apple-authentication', () => ({ isAvailableAsync: jest.fn(async () => false) }));
 jest.mock('react-native-safe-area-context', () => jest.requireActual('react-native-safe-area-context/jest/mock').default);
 jest.mock('../db/openStore', () => {
-  const { CollectionStore, createMemoryRepo } = jest.requireActual('@mst/collection-core');
-  const opened = { store: new CollectionStore(createMemoryRepo()), persistent: true };
+  const { CollectionStore, createMemoryPriceCache, createMemoryRepo } = jest.requireActual('@mst/collection-core');
+  const repo = createMemoryRepo();
+  const opened = { store: new CollectionStore(repo), repo, priceCache: createMemoryPriceCache(), persistent: true };
   return { getAppStore: () => opened };
 });
 

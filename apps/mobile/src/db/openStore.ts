@@ -1,10 +1,22 @@
-import { CollectionStore, createMemoryRepo, createSqliteRepo } from '@mst/collection-core';
+import {
+  CollectionStore,
+  createMemoryPriceCache,
+  createMemoryRepo,
+  createSqlitePriceCache,
+  createSqliteRepo,
+  type CollectionRepo,
+  type PriceCache,
+} from '@mst/collection-core';
 import { openDatabaseSync } from 'expo-sqlite';
 import { Platform } from 'react-native';
 import { createExpoSqlDb } from './expo-sql-db';
 
 export interface OpenedStore {
   store: CollectionStore;
+  /** The store's repo, for the sync engine (dirty rows, cursor, local owner). */
+  repo: CollectionRepo;
+  /** Cached set prices, in the same database. */
+  priceCache: PriceCache;
   /** False when changes live only in memory (the web fallback). */
   persistent: boolean;
 }
@@ -15,12 +27,14 @@ export interface OpenedStore {
  */
 export function openStore(): OpenedStore {
   try {
-    const repo = createSqliteRepo(createExpoSqlDb(openDatabaseSync('collection.db')));
-    return { store: new CollectionStore(repo), persistent: true };
+    const db = createExpoSqlDb(openDatabaseSync('collection.db'));
+    const repo = createSqliteRepo(db);
+    return { store: new CollectionStore(repo), repo, priceCache: createSqlitePriceCache(db), persistent: true };
   } catch (error) {
     if (Platform.OS !== 'web') throw error;
     console.warn('SQLite is unavailable on this page; using an in-memory store.', error);
-    return { store: new CollectionStore(createMemoryRepo()), persistent: false };
+    const repo = createMemoryRepo();
+    return { store: new CollectionStore(repo), repo, priceCache: createMemoryPriceCache(), persistent: false };
   }
 }
 

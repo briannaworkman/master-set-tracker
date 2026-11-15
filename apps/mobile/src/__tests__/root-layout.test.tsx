@@ -29,11 +29,12 @@ jest.mock('react-native-safe-area-context', () => jest.requireActual('react-nati
 
 let mockOpenError: Error | null = null;
 jest.mock('../db/openStore', () => {
-  const { CollectionStore, createMemoryRepo } = jest.requireActual('@mst/collection-core');
+  const { CollectionStore, createMemoryPriceCache, createMemoryRepo } = jest.requireActual('@mst/collection-core');
   return {
     getAppStore: () => {
       if (mockOpenError) throw mockOpenError;
-      return { store: new CollectionStore(createMemoryRepo()), persistent: true };
+      const repo = createMemoryRepo();
+      return { store: new CollectionStore(repo), repo, priceCache: createMemoryPriceCache(), persistent: true };
     },
   };
 });

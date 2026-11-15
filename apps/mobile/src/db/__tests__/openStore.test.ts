@@ -37,15 +37,29 @@ describe('openStore', () => {
     expect(db.getFirstSync('SELECT count FROM collection WHERE card_id = ?', ['c-001'])).toEqual({ count: 1 });
   });
 
+  it('exposes the repo and a price cache over the same database', () => {
+    const db = sqliteBackedExpoDb();
+    openMock.mockReturnValue(db as unknown as ReturnType<typeof openDatabaseSync>);
+    const { store, repo, priceCache } = openStore();
+    store.tap('fx', 'c-001', 'normal');
+    expect(repo.dirtyCount()).toBe(1);
+    priceCache.put('fx', '2026-11-15T00:00:00.000Z', { 'c-001|normal': 2.5 });
+    expect(db.getFirstSync('SELECT set_id, fetched_at FROM prices', [])).toEqual({ set_id: 'fx', fetched_at: '2026-11-15T00:00:00.000Z' });
+    expect(priceCache.get('fx')).toEqual({ fetchedAt: '2026-11-15T00:00:00.000Z', prices: { 'c-001|normal': 2.5 } });
+  });
+
   it('falls back to an in-memory store on web when SQLite cannot open', () => {
     Platform.OS = 'web';
     jest.spyOn(console, 'warn').mockImplementation(() => {});
     openMock.mockImplementation(() => {
       throw new ReferenceError('SharedArrayBuffer is not defined');
     });
-    const { store, persistent } = openStore();
+    const { store, repo, priceCache, persistent } = openStore();
     expect(persistent).toBe(false);
     store.track('fx');
+    expect(repo.listTracked().map((t) => t.setId)).toEqual(['fx']);
+    priceCache.put('fx', '2026-11-15T00:00:00.000Z', {});
+    expect(priceCache.get('fx')).toEqual({ fetchedAt: '2026-11-15T00:00:00.000Z', prices: {} });
     expect(store.getTracked().map((t) => t.setId)).toEqual(['fx']);
   });
 
