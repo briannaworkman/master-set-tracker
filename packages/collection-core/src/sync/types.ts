@@ -32,3 +32,8 @@ export interface SyncState {
 export function isNewer(a: string, b: string): boolean {
   return a > b;
 }
+
+/** True when `a` is later than or equal to `b` (same fixed-width ISO format assumption as isNewer). */
+export function isNewerOrEqual(a: string, b: string): boolean {
+  return a >= b;
+}

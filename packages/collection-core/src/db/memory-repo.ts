@@ -1,6 +1,6 @@
 import { clampCount, versionKey, type VersionKey } from '../keys';
-import { isNewer, type CollectionRow, type SyncState, type TrackedRow } from '../sync/types';
-import { takeOldest } from './sqlite-repo';
+import { takeOldest } from '../sync/dirty-merge';
+import { isNewerOrEqual, type CollectionRow, type SyncState, type TrackedRow } from '../sync/types';
 import type { CollectionRepo, TrackedSet } from './sql-db';
 
 interface TrackedEntry extends TrackedRow {
@@ -11,7 +11,21 @@ interface CountEntry extends CollectionRow {
 }
 
 const sameIds = (a: string[], b: string[]) => a.length === b.length && a.every((x, i) => x === b[i]);
-const strip = <T extends { dirty: boolean }>({ dirty: _d, ...rest }: T): Omit<T, 'dirty'> => rest;
+
+const countRow = (r: CountEntry | CollectionRow): CollectionRow => ({
+  cardId: r.cardId,
+  kind: r.kind,
+  setId: r.setId,
+  count: r.count,
+  updatedAt: r.updatedAt,
+});
+const trackedRow = (r: TrackedEntry | TrackedRow): TrackedRow => ({
+  setId: r.setId,
+  hiddenCategoryIds: [...r.hiddenCategoryIds],
+  addedAt: r.addedAt,
+  removedAt: r.removedAt,
+  updatedAt: r.updatedAt,
+});
 
 /** In-memory mirror of the SQLite repo, including soft-deleted tracked sets and dirty flags. */
 export function createMemoryRepo(): CollectionRepo {
@@ -58,37 +72,50 @@ export function createMemoryRepo(): CollectionRepo {
     },
     dirtyChanges(limit) {
       return takeOldest(
-        [...counts.values()].filter((r) => r.dirty).map((r) => strip(r)),
-        [...tracked.values()].filter((r) => r.dirty).map((r) => ({ ...strip(r), hiddenCategoryIds: [...r.hiddenCategoryIds] })),
+        [...counts.values()].filter((r) => r.dirty).map(countRow),
+        [...tracked.values()].filter((r) => r.dirty).map(trackedRow),
         limit,
       );
     },
     markSynced(changes) {
       for (const r of changes.collection) {
         const c = counts.get(versionKey(r.cardId, r.kind));
-        if (c && c.updatedAt === r.updatedAt) c.dirty = false;
+        if (c && c.updatedAt === r.updatedAt && c.count === r.count && c.setId === r.setId) c.dirty = false;
       }
       for (const r of changes.tracked) {
         const t = tracked.get(r.setId);
-        if (t && t.updatedAt === r.updatedAt) t.dirty = false;
+        if (
+          t &&
+          t.updatedAt === r.updatedAt &&
+          t.removedAt === r.removedAt &&
+          t.addedAt === r.addedAt &&
+          sameIds(t.hiddenCategoryIds, r.hiddenCategoryIds)
+        ) {
+          t.dirty = false;
+        }
       }
     },
     applyRemote(changes) {
+      // Build every accepted row first, then commit, so a failure leaves nothing half-applied.
       const affected = new Set<string>();
+      const nextCounts = new Map<VersionKey, CountEntry>();
+      const nextTracked = new Map<string, TrackedEntry>();
       for (const r of changes.collection) {
         const key = versionKey(r.cardId, r.kind);
-        const local = counts.get(key);
-        if (local && !isNewer(r.updatedAt, local.updatedAt)) continue;
-        counts.set(key, { ...r, count: clampCount(r.count), dirty: false });
+        const local = nextCounts.get(key) ?? counts.get(key);
+        if (local && !isNewerOrEqual(r.updatedAt, local.updatedAt)) continue;
+        nextCounts.set(key, { ...countRow({ ...r, count: clampCount(r.count) }), dirty: false });
         affected.add(r.setId);
         if (local) affected.add(local.setId);
       }
       for (const r of changes.tracked) {
-        const local = tracked.get(r.setId);
-        if (local && !isNewer(r.updatedAt, local.updatedAt)) continue;
-        tracked.set(r.setId, { ...r, hiddenCategoryIds: [...r.hiddenCategoryIds], dirty: false });
+        const local = nextTracked.get(r.setId) ?? tracked.get(r.setId);
+        if (local && !isNewerOrEqual(r.updatedAt, local.updatedAt)) continue;
+        nextTracked.set(r.setId, { ...trackedRow(r), dirty: false });
         affected.add(r.setId);
       }
+      for (const [k, v] of nextCounts) counts.set(k, v);
+      for (const [k, v] of nextTracked) tracked.set(k, v);
       return { affectedSetIds: [...affected] };
     },
     getSyncState: () => ({ ...sync }),

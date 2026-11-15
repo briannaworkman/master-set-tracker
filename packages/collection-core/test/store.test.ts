@@ -4,6 +4,8 @@ import { createMemoryRepo } from '../src/db/memory-repo';
 import { createSqliteRepo } from '../src/db/sqlite-repo';
 import type { CollectionRepo } from '../src/db/sql-db';
 import { CollectionStore } from '../src/store';
+import { setProgress } from '../src/progress';
+import { fixtureCatalog } from '../src/testing/fixture-catalog';
 import { createBetterSqliteDb } from './better-sqlite-db';
 
 describe('CollectionStore', () => {
@@ -225,5 +227,27 @@ describe('CollectionStore sync support', () => {
     expect(store.getTracked()).toEqual([]);
     expect(store.getCounts('a')).toEqual({});
     expect(repo.dirtyCount()).toBe(0);
+  });
+
+  it.each([
+    ['memory', () => createMemoryRepo()],
+    ['sqlite', () => createSqliteRepo(createBetterSqliteDb())],
+  ])('a cached set loses a key that applyRemote moved to another set (%s)', (_n, make) => {
+    const store = new CollectionStore(make(), () => '2026-01-01T00:00:00.000Z');
+    store.tap('a', 'c-1', 'normal');
+    expect(store.getCounts('a')).toEqual({ 'c-1:normal': 1 });
+    store.getCounts('b');
+    store.applyRemote({ collection: [remote('c-1', 'b', 2, '2026-02-01T00:00:00.000Z')], tracked: [] });
+    expect(store.getCounts('a')).toEqual({});
+    expect(store.getCounts('b')).toEqual({ 'c-1:normal': 2 });
+  });
+
+  it('stores a remote row for a version the catalog does not know without changing progress', () => {
+    const store = new CollectionStore(createMemoryRepo(), () => '2026-01-01T00:00:00.000Z');
+    const cat = fixtureCatalog;
+    const before = setProgress(cat, store.getCounts(cat.id), []);
+    store.applyRemote({ collection: [remote('ghost-999', cat.id, 3, '2026-02-01T00:00:00.000Z')], tracked: [] });
+    expect(store.getCounts(cat.id)['ghost-999:normal']).toBe(3);
+    expect(setProgress(cat, store.getCounts(cat.id), [])).toEqual(before);
   });
 });

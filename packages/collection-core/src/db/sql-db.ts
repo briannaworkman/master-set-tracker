@@ -35,13 +35,18 @@ export interface CollectionRepo {
   setCount(setId: string, cardId: string, kind: string, count: number, now: string): void;
   /** Dirty rows (collection + tracked merged), oldest updatedAt first, at most `limit` in total. */
   dirtyChanges(limit: number): LocalChanges;
-  /** Clears dirty per row, only where the stored updatedAt still equals the pushed one. One transaction. */
+  /**
+   * Clears dirty per row, only where the stored updatedAt AND content (count/setId; hidden
+   * categories/removedAt/addedAt) still equal the pushed snapshot, so a rewrite within the same
+   * millisecond stays dirty. One transaction.
+   */
   markSynced(changes: LocalChanges): void;
   /**
-   * One transaction. Last-write-wins: a remote row applies when its updatedAt is strictly newer than
-   * the local row's, or the local row is absent; applied rows are stored clean. On an exact tie the
-   * local row is kept and its dirty flag left alone: the server already holds a value for that
-   * timestamp, so a dirty local tie is pushed later and rejected harmlessly.
+   * One transaction. Last-write-wins: a remote row applies when its updatedAt is newer than OR EQUAL
+   * to the local row's, or the local row is absent; applied rows are stored clean. Remote wins ties
+   * because the server keeps its own row on a tie and a pull only runs after a successful push, so
+   * whatever the server holds for that timestamp is authoritative; overwriting even a dirty tied
+   * local row keeps the devices in step.
    */
   applyRemote(changes: LocalChanges): { affectedSetIds: string[] };
   getSyncState(): SyncState;

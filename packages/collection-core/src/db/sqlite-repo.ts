@@ -1,6 +1,7 @@
 import { clampCount, versionKey, type VersionKey } from '../keys';
 import { migrate } from './migrations';
-import { isNewer, type CollectionRow, type LocalChanges, type TrackedRow } from '../sync/types';
+import { takeOldest } from '../sync/dirty-merge';
+import { isNewerOrEqual, type CollectionRow, type TrackedRow } from '../sync/types';
 import type { CollectionRepo, SqlDb, TrackedSet } from './sql-db';
 
 function parseIds(raw: string): string[] {
@@ -89,10 +90,15 @@ export function createSqliteRepo(db: SqlDb): CollectionRepo {
     markSynced(changes) {
       db.transaction(() => {
         for (const r of changes.collection) {
-          db.run('UPDATE collection SET dirty = 0 WHERE card_id = ? AND kind = ? AND updated_at = ?', [r.cardId, r.kind, r.updatedAt]);
+          db.run('UPDATE collection SET dirty = 0 WHERE card_id = ? AND kind = ? AND updated_at = ? AND count = ? AND set_id = ?',
+            [r.cardId, r.kind, r.updatedAt, r.count, r.setId],);
         }
         for (const r of changes.tracked) {
-          db.run('UPDATE tracked_sets SET dirty = 0 WHERE set_id = ? AND updated_at = ?', [r.setId, r.updatedAt]);
+          db.run(
+            `UPDATE tracked_sets SET dirty = 0 WHERE set_id = ? AND updated_at = ? AND hidden_category_ids = ?
+             AND removed_at IS ? AND added_at = ?`,
+            [r.setId, r.updatedAt, JSON.stringify(r.hiddenCategoryIds), r.removedAt, r.addedAt],
+          );
         }
       });
     },
@@ -104,7 +110,7 @@ export function createSqliteRepo(db: SqlDb): CollectionRepo {
             'SELECT set_id, updated_at FROM collection WHERE card_id = ? AND kind = ?',
             [r.cardId, r.kind],
           );
-          if (local && !isNewer(r.updatedAt, local.updated_at)) continue;
+          if (local && !isNewerOrEqual(r.updatedAt, local.updated_at)) continue;
           db.run(
             `INSERT INTO collection (set_id, card_id, kind, count, updated_at, dirty) VALUES (?, ?, ?, ?, ?, 0)
              ON CONFLICT (card_id, kind) DO UPDATE SET set_id = excluded.set_id, count = excluded.count, updated_at = excluded.updated_at, dirty = 0`,
@@ -115,7 +121,7 @@ export function createSqliteRepo(db: SqlDb): CollectionRepo {
         }
         for (const r of changes.tracked) {
           const local = db.first<{ updated_at: string }>('SELECT updated_at FROM tracked_sets WHERE set_id = ?', [r.setId]);
-          if (local && !isNewer(r.updatedAt, local.updated_at)) continue;
+          if (local && !isNewerOrEqual(r.updatedAt, local.updated_at)) continue;
           db.run(
             `INSERT INTO tracked_sets (set_id, hidden_category_ids, added_at, removed_at, updated_at, dirty) VALUES (?, ?, ?, ?, ?, 0)
              ON CONFLICT (set_id) DO UPDATE SET hidden_category_ids = excluded.hidden_category_ids, added_at = excluded.added_at,
@@ -165,17 +171,3 @@ const toTrackedRow = (r: TrackedDbRow): TrackedRow => ({
   removedAt: r.removed_at,
   updatedAt: r.updated_at,
 });
-
-/** Keeps the `limit` oldest rows across both lists, preserving each list's order. */
-export function takeOldest(collection: CollectionRow[], tracked: TrackedRow[], limit: number): LocalChanges {
-  const merged = [
-    ...collection.map((row, i) => ({ row, i, kind: 0 as const })),
-    ...tracked.map((row, i) => ({ row, i, kind: 1 as const })),
-  ].sort((a, b) => (a.row.updatedAt < b.row.updatedAt ? -1 : a.row.updatedAt > b.row.updatedAt ? 1 : a.kind - b.kind || a.i - b.i));
-  const out: LocalChanges = { collection: [], tracked: [] };
-  for (const m of merged.slice(0, Math.max(0, limit))) {
-    if (m.kind === 0) out.collection.push(m.row as CollectionRow);
-    else out.tracked.push(m.row as TrackedRow);
-  }
-  return out;
-}

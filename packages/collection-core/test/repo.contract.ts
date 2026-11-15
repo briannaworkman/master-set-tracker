@@ -150,15 +150,58 @@ export function runRepoContract(name: string, make: () => CollectionRepo): void 
         expect(repo.dirtyCount()).toBe(0);
       });
 
-      it('applyRemote keeps the local row on an exact tie and leaves it dirty', () => {
+      it('applyRemote lets the remote row win an exact tie and stores it clean', () => {
         repo.setCount('a', 'c-1', 'normal', 1, stamp(5));
+        repo.markSynced(repo.dirtyChanges(10)); // pushed and rejected by the server on the tie
+        repo.setCount('a', 'c-2', 'normal', 1, stamp(5)); // dirty tie, not yet pushed
         const res = repo.applyRemote({
-          collection: [{ cardId: 'c-1', kind: 'normal', setId: 'a', count: 9, updatedAt: stamp(5) }],
+          collection: [
+            { cardId: 'c-1', kind: 'normal', setId: 'a', count: 9, updatedAt: stamp(5) },
+            { cardId: 'c-2', kind: 'normal', setId: 'a', count: 7, updatedAt: stamp(5) },
+          ],
           tracked: [],
         });
-        expect(res.affectedSetIds).toEqual([]);
-        expect(repo.countsForSet('a')).toEqual({ 'c-1:normal': 1 });
-        expect(repo.dirtyCount()).toBe(1);
+        expect(res.affectedSetIds).toEqual(['a']);
+        expect(repo.countsForSet('a')).toEqual({ 'c-1:normal': 9, 'c-2:normal': 7 });
+        expect(repo.dirtyCount()).toBe(0);
+      });
+
+      it('markSynced keeps a row dirty when it was rewritten within the same millisecond', () => {
+        repo.trackSet('a', stamp(1));
+        repo.setCount('a', 'c-1', 'normal', 1, stamp(2));
+        const pushed = repo.dirtyChanges(10);
+        repo.setCount('a', 'c-1', 'normal', 4, stamp(2));
+        repo.setHiddenCategories('a', ['z'], stamp(1));
+        repo.markSynced(pushed);
+        const left = repo.dirtyChanges(10);
+        expect(left.collection.map((r) => r.count)).toEqual([4]);
+        expect(left.tracked.map((r) => r.hiddenCategoryIds)).toEqual([['z']]);
+      });
+
+      it('dirtyChanges handles equal timestamps across tables and a limit below one table', () => {
+        repo.trackSet('a', stamp(1));
+        repo.trackSet('b', stamp(1));
+        repo.setCount('a', 'c-1', 'normal', 1, stamp(1));
+        repo.setCount('a', 'c-2', 'normal', 1, stamp(1));
+        repo.setCount('a', 'c-3', 'normal', 1, stamp(2));
+        const all = repo.dirtyChanges(100);
+        expect(all.collection).toHaveLength(3);
+        expect(all.tracked).toHaveLength(2);
+        const two = repo.dirtyChanges(2);
+        expect(two.collection.length + two.tracked.length).toBe(2);
+        expect(repo.dirtyChanges(0)).toEqual({ collection: [], tracked: [] });
+        const three = repo.dirtyChanges(3);
+        expect(three.collection.length + three.tracked.length).toBe(3);
+        expect(three.collection.every((r) => r.updatedAt <= stamp(1))).toBe(true);
+      });
+
+      it('applyRemote does not leak extra remote fields into dirtyChanges', () => {
+        repo.applyRemote({
+          collection: [{ cardId: 'c-1', kind: 'normal', setId: 'a', count: 1, updatedAt: stamp(1), serverSeq: 5 } as never],
+          tracked: [],
+        });
+        repo.setCount('a', 'c-1', 'normal', 2, stamp(2));
+        expect(repo.dirtyChanges(5).collection).toEqual([{ cardId: 'c-1', kind: 'normal', setId: 'a', count: 2, updatedAt: stamp(2) }]);
       });
 
       it('applyRemote follows a card moved to another set and reports both sets', () => {
