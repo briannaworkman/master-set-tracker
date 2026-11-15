@@ -30,7 +30,8 @@ export default function RootLayout() {
                   contentStyle: { backgroundColor: theme.bg },
                 }}
               >
-                <Stack.Screen name="index" options={{ title: 'My Sets' }} />
+                <Stack.Screen name="index" options={{ headerShown: false }} />
+                <Stack.Screen name="browse" options={{ title: 'Add a set' }} />
               </Stack>
             </PersistenceContext.Provider>
           </PriceProvider>
