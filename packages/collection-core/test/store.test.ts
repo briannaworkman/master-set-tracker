@@ -106,6 +106,26 @@ describe('CollectionStore robustness', () => {
   });
 });
 
+describe('CollectionStore cross-set writes', () => {
+  it.each([
+    ['memory', () => createMemoryRepo()],
+    ['sqlite', () => createSqliteRepo(createBetterSqliteDb())],
+  ])('keeps caches consistent with the repo (%s)', (_n, make) => {
+    const repo = make();
+    const store = new CollectionStore(repo);
+    store.tap('a', 'c-001', 'normal');
+    store.tap('a', 'c-001', 'normal');
+    store.setCount('b', 'c-001', 'normal', 1);
+    expect(store.getCounts('a')).not.toHaveProperty('c-001:normal');
+    expect(store.getCounts('b')['c-001:normal']).toBe(1);
+    store.tap('a', 'c-001', 'normal');
+    expect(store.getCounts('a')['c-001:normal']).toBe(1);
+    expect(store.getCounts('b')).not.toHaveProperty('c-001:normal');
+    expect(store.getCounts('a')).toEqual(repo.countsForSet('a'));
+    expect(store.getCounts('b')).toEqual(repo.countsForSet('b'));
+  });
+});
+
 describe('migrate', () => {
   it('is idempotent', () => {
     const db = createBetterSqliteDb();

@@ -48,12 +48,18 @@ export class CollectionStore {
   }
 
   tap(setId: string, cardId: string, kind: string): void {
-    this.setCount(setId, cardId, kind, (this.getCounts(setId)[versionKey(cardId, kind)] ?? 0) + 1);
+    const current = this.repo.countsForSet(setId)[versionKey(cardId, kind)] ?? 0;
+    this.setCount(setId, cardId, kind, current + 1);
   }
 
   setCount(setId: string, cardId: string, kind: string, n: number): void {
     this.repo.setCount(setId, cardId, kind, n, this.now());
+    const key = versionKey(cardId, kind);
     this.counts.set(setId, this.repo.countsForSet(setId));
+    // The row is keyed globally, so another set's cached counts may have lost it.
+    for (const [other, c] of this.counts) {
+      if (other !== setId && key in c) this.counts.set(other, this.repo.countsForSet(other));
+    }
     this.emit();
   }
 
