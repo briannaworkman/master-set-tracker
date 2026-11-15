@@ -28,6 +28,7 @@ function BrowseRow({ set, added, onAdd }: { set: CatalogSetSummary; added: boole
         accessibilityLabel={added ? `${set.name} added` : `Add ${set.name}`}
         accessibilityState={{ disabled: added }}
         disabled={added}
+        hitSlop={{ top: 4, bottom: 4 }}
         onPress={onAdd}
         style={[styles.button, added ? { borderColor: theme.border, borderWidth: 1 } : { backgroundColor: theme.accent }]}
       >

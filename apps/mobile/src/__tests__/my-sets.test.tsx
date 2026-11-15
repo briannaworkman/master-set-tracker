@@ -1,5 +1,6 @@
 import { CollectionStore, createMemoryRepo } from '@mst/collection-core';
 import { fireEvent, render, screen } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
 import BrowseScreen from '../../app/browse';
 import HomeScreen from '../../app/index';
 import { TestProviders } from '../test/TestProviders';
@@ -73,4 +74,32 @@ it('shows progress from stored counts', async () => {
     </TestProviders>,
   );
   expect(await screen.findByText('2 of 11')).toBeOnTheScreen();
+});
+
+type Slop = number | { top?: number; bottom?: number } | undefined;
+
+/** Visual height plus vertical hit slop: the height a finger can actually hit. */
+function touchHeight(el: { props: { style?: unknown; hitSlop?: unknown } }): number {
+  const style = StyleSheet.flatten(el.props.style as never) ?? {};
+  const slop = el.props.hitSlop as Slop;
+  const vertical = typeof slop === 'number' ? 2 * slop : (slop?.top ?? 0) + (slop?.bottom ?? 0);
+  return Math.max(Number(style.height ?? 0), Number(style.minHeight ?? 0)) + vertical;
+}
+
+it('gives the Add set and Add buttons a 44 pt touch target', async () => {
+  const store = newStore();
+  const { unmount } = await render(
+    <TestProviders store={store}>
+      <HomeScreen />
+    </TestProviders>,
+  );
+  expect(touchHeight(screen.getByRole('button', { name: 'Add set' }))).toBeGreaterThanOrEqual(44);
+  await unmount();
+
+  await render(
+    <TestProviders store={store}>
+      <BrowseScreen />
+    </TestProviders>,
+  );
+  expect(touchHeight(screen.getByRole('button', { name: 'Add Fixture Set' }))).toBeGreaterThanOrEqual(44);
 });

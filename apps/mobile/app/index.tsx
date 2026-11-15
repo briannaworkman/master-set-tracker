@@ -34,6 +34,7 @@ function AddSetButton() {
     <Pressable
       accessibilityRole="button"
       accessibilityLabel="Add set"
+      hitSlop={{ top: 2, bottom: 2 }}
       onPress={() => router.push('/browse')}
       style={[styles.addButton, { backgroundColor: theme.accent }]}
     >
