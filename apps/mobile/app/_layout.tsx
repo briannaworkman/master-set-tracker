@@ -30,7 +30,8 @@ export default function RootLayout() {
                   contentStyle: { backgroundColor: theme.bg },
                 }}
               >
-                <Stack.Screen name="index" options={{ headerShown: false }} />
+                {/* The title is never shown here, but iOS uses it as the back-button label. */}
+                <Stack.Screen name="index" options={{ title: 'My Sets', headerShown: false }} />
                 <Stack.Screen name="browse" options={{ title: 'Add a set' }} />
                 <Stack.Screen name="set/[id]/card/[cardId]" options={{ presentation: 'modal' }} />
               </Stack>
