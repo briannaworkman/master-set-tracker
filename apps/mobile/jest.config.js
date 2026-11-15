@@ -1,5 +1,6 @@
 /** @type {import('jest').Config} */
 module.exports = {
+  setupFiles: ['<rootDir>/jest.setup.js'],
   preset: 'jest-expo',
   // Transform RN/Expo packages (shipped untranspiled) and the @mst/* workspace packages,
   // which the app imports as TypeScript source with no build step.
