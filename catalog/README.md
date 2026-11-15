@@ -164,6 +164,21 @@ You need Node 22 and pnpm. Run commands from the repository root.
      may match nothing.
    - `overrides`: per-card exceptions, keyed by card id like `sv08.5-093`.
    - `extraCards`: stamped or promo cards that aren't in the TCGdex set list.
+     Each needs an `id` unique within the set (the build fails on a clash with
+     another extra card or a TCGdex card id). Use
+     `<set id>-<number>-stamp-<stamp>`, where `<stamp>` names the stamp in
+     lowercase kebab case: `set-logo` for the expansion's own logo stamp, or
+     the retailer or program (`gamestop`, `ebgames`, `pokemon-center`). If one
+     stamp was printed in more than one way on the same card, add a printing
+     suffix, e.g. `sv08.5-082-stamp-set-logo-right` and
+     `sv08.5-082-stamp-set-logo-left`. Choose a specific id from the start
+     rather than a bare `-stamp`, because a second stamp on the same card
+     would make a bare id ambiguous.
+   - **Ids are permanent once a set is published.** Extra card ids, category
+     ids and version kind ids are baked into the lock file and the app's
+     saved data, so never rename them after publishing. (Renaming an extra
+     card would retire its versions and add new ones.) Fix ids before the
+     first publish.
    - Put your sources in a comment at the top. Check versions against at least
      two independent sources (TCGdex `variants_detailed`, a master set guide,
      a marketplace such as TCGplayer, CardTrader or PriceCharting).

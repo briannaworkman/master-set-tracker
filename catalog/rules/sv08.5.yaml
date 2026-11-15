@@ -83,86 +83,88 @@ versionRules:
   - match: {}
     versions: [single]
 overrides: {}
+# Extra card ids follow <set id>-<number>-stamp-<stamp>[-<printing>] (see catalog/README.md)
+# and are permanent once the set is published.
 extraCards:
   # Prismatic Evolutions Surprise Box (each box has one of the nine stamped Eevee / Eeveelution ex).
-  - id: sv08.5-006-stamp
+  - id: sv08.5-006-stamp-set-logo
     category: promos
     number: "006"
     name: Leafeon ex (Prismatic Evolutions stamp)
     sourceCard: { tcgdex: sv08.5-006 }
     versions: [single]
   # Prismatic Evolutions Surprise Box (each box has one of the nine stamped Eevee / Eeveelution ex).
-  - id: sv08.5-014-stamp
+  - id: sv08.5-014-stamp-set-logo
     category: promos
     number: "014"
     name: Flareon ex (Prismatic Evolutions stamp)
     sourceCard: { tcgdex: sv08.5-014 }
     versions: [single]
   # Prismatic Evolutions Surprise Box (each box has one of the nine stamped Eevee / Eeveelution ex).
-  - id: sv08.5-023-stamp
+  - id: sv08.5-023-stamp-set-logo
     category: promos
     number: "023"
     name: Vaporeon ex (Prismatic Evolutions stamp)
     sourceCard: { tcgdex: sv08.5-023 }
     versions: [single]
   # Prismatic Evolutions Surprise Box (each box has one of the nine stamped Eevee / Eeveelution ex).
-  - id: sv08.5-026-stamp
+  - id: sv08.5-026-stamp-set-logo
     category: promos
     number: "026"
     name: Glaceon ex (Prismatic Evolutions stamp)
     sourceCard: { tcgdex: sv08.5-026 }
     versions: [single]
   # Prismatic Evolutions Surprise Box (each box has one of the nine stamped Eevee / Eeveelution ex).
-  - id: sv08.5-030-stamp
+  - id: sv08.5-030-stamp-set-logo
     category: promos
     number: "030"
     name: Jolteon ex (Prismatic Evolutions stamp)
     sourceCard: { tcgdex: sv08.5-030 }
     versions: [single]
   # Prismatic Evolutions Surprise Box (each box has one of the nine stamped Eevee / Eeveelution ex).
-  - id: sv08.5-034-stamp
+  - id: sv08.5-034-stamp-set-logo
     category: promos
     number: "034"
     name: Espeon ex (Prismatic Evolutions stamp)
     sourceCard: { tcgdex: sv08.5-034 }
     versions: [single]
   # Prismatic Evolutions Surprise Box (each box has one of the nine stamped Eevee / Eeveelution ex).
-  - id: sv08.5-041-stamp
+  - id: sv08.5-041-stamp-set-logo
     category: promos
     number: "041"
     name: Sylveon ex (Prismatic Evolutions stamp)
     sourceCard: { tcgdex: sv08.5-041 }
     versions: [single]
   # Lucario ex & Tyranitar ex Premium Collection.
-  - id: sv08.5-051-stamp
+  - id: sv08.5-051-stamp-set-logo
     category: promos
     number: "051"
     name: Lucario ex (Prismatic Evolutions stamp)
     sourceCard: { tcgdex: sv08.5-051 }
     versions: [single]
   # Prismatic Evolutions Surprise Box (each box has one of the nine stamped Eevee / Eeveelution ex).
-  - id: sv08.5-060-stamp
+  - id: sv08.5-060-stamp-set-logo
     category: promos
     number: "060"
     name: Umbreon ex (Prismatic Evolutions stamp)
     sourceCard: { tcgdex: sv08.5-060 }
     versions: [single]
   # Lucario ex & Tyranitar ex Premium Collection.
-  - id: sv08.5-064-stamp
+  - id: sv08.5-064-stamp-set-logo
     category: promos
     number: "064"
     name: Tyranitar ex (Prismatic Evolutions stamp)
     sourceCard: { tcgdex: sv08.5-064 }
     versions: [single]
   # Prismatic Evolutions Surprise Box (each box has one of the nine stamped Eevee / Eeveelution ex).
-  - id: sv08.5-075-stamp
+  - id: sv08.5-075-stamp-set-logo
     category: promos
     number: "075"
     name: Eevee ex (Prismatic Evolutions stamp)
     sourceCard: { tcgdex: sv08.5-075 }
     versions: [single]
   # Snorlax ex & Blissey ex Special Collection.
-  - id: sv08.5-076-stamp
+  - id: sv08.5-076-stamp-set-logo
     category: promos
     number: "076"
     name: Snorlax ex (Prismatic Evolutions stamp)
@@ -170,8 +172,9 @@ extraCards:
     versions: [single]
   # Lugia ex & Latias ex Premium Collection (Target US, from 2025-10-17): stamp on
   # the RIGHT side of the card. The other stamped printing (stamp on the left, Lugia ex
-  # Special Collection, Europe only) is NOT tracked yet; see README open questions.
-  - id: sv08.5-082-stamp-right
+  # Special Collection, Europe only) is NOT tracked yet; if added, its id would be
+  # sv08.5-082-stamp-set-logo-left. See README open questions.
+  - id: sv08.5-082-stamp-set-logo-right
     category: promos
     number: "082"
     name: Lugia ex (Prismatic Evolutions stamp on right, Lugia ex & Latias ex Premium Collection)

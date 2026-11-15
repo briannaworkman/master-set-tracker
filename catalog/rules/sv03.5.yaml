@@ -61,9 +61,11 @@ versionRules:
   - match: {}
     versions: [single]
 overrides: {}
+# Extra card ids follow <set id>-<number>-stamp-<stamp>[-<printing>] (see catalog/README.md)
+# and are permanent once the set is published.
 extraCards:
-  # Best Buy gift with purchase (USA), "Scarlet & Violet—151" stamp.
-  - id: sv03.5-001-stamp-151
+  # Best Buy gift with purchase (USA), "Scarlet & Violet—151" set-logo stamp.
+  - id: sv03.5-001-stamp-set-logo
     category: promos
     number: "001"
     name: Bulbasaur (151 stamp, Best Buy)
