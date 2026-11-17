@@ -1,0 +1,19 @@
+diff --git a/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptObject.swift b/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptObject.swift
+index de76b9762d8f3cdd05a68fca7a01e8f1b0af973f..fba3a3ceef9a6552787f57a89c3c37a17d54733d 100644
+--- a/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptObject.swift
++++ b/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptObject.swift
+@@ -939,11 +939,13 @@ private func withEncodedValue(
+     defer {
+       expo.destroyValues(slot, 1)
+     }
++    // Xcode 26.3 region-isolation error; remove when expo-modules-jsi ships a fix.
++    nonisolated(unsafe) let unsafeSlot = slot
+     // The runtime can't be deallocated during a call on its JavaScript thread, so it's borrowed without
+     // a retain.
+     try runtime._withUnsafeGuaranteedRef { runtime in
+       try JavaScriptActor.assumeIsolated {
+-        try encode(JavaScriptValue.Slot(slot), runtime)
++        try encode(JavaScriptValue.Slot(unsafeSlot), runtime)
+       }
+     }
+     body(slot.pointee)

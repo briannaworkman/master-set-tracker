@@ -62,7 +62,6 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       'expo-dev-client',
       ...(appleSignIn ? ['expo-apple-authentication'] : ['./plugins/withoutAppleSignIn']),
       'expo-secure-store',
-      './plugins/withJsiSwift5',
       ...(googleUrlScheme
         ? [['@react-native-google-signin/google-signin', { iosUrlScheme: googleUrlScheme }] as [string, any]]
         : []),
