@@ -66,10 +66,10 @@ Supabase only lets you edit email templates once a custom SMTP server is configu
 
 ### Templates and code length
 
-1. **Authentication → Emails → Templates → Confirm signup**: paste `docs/setup/email-templates/confirm-signup.html` and use the subject from its first line (`Welcome to Master Set Tracker: your code is {{ .Token }}`).
-2. **Authentication → Emails → Templates → Magic Link**: paste `docs/setup/email-templates/magic-link.html` and use the subject from its first line (`Your Master Set Tracker code: {{ .Token }}`).
+1. **Authentication → Emails → Templates → Confirm signup**: paste `docs/setup/email-templates/confirm-signup.html` and use the subject `Welcome to Master Set Tracker: your code is {{ .Token }}`.
+2. **Authentication → Emails → Templates → Magic Link**: paste `docs/setup/email-templates/magic-link.html` and use the subject `Your Master Set Tracker code: {{ .Token }}`.
    Save each template. `{{ .Token }}` must appear exactly like that (with the spaces and the dot).
-3. **Authentication → Sign In / Providers → Email**: set **Email OTP Length** and leave **Confirm email** on. Supabase's default is **8**, but the app's code field defaults to **6**: **Email OTP Length must equal `EXPO_PUBLIC_EMAIL_OTP_LENGTH`** (6 if unset; allowed 6 to 10). If they differ, codes are truncated and rejected. Either set Supabase to 6, or set `EXPO_PUBLIC_EMAIL_OTP_LENGTH` in `apps/mobile/.env` to match Supabase and restart Expo.
+3. **Authentication → Sign In / Providers → Email**: set **Email OTP Length** and leave **Confirm email** on. Supabase's default is **8**, but the app's code field defaults to **6**: **Email OTP Length must equal `EXPO_PUBLIC_EMAIL_OTP_LENGTH`** (6 if unset; allowed 6 to 10). If the app's length is shorter than Supabase's, codes are truncated and rejected; if it is longer, Verify never enables. Either set Supabase to 6, or set `EXPO_PUBLIC_EMAIL_OTP_LENGTH` in `apps/mobile/.env` to match Supabase and restart Expo.
 
 Without custom SMTP the built-in sender is rate-limited (a few emails an hour) and its templates can't be edited.
 
