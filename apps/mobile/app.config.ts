@@ -60,7 +60,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       'expo-sqlite',
       'expo-image',
       'expo-dev-client',
-      ...(appleSignIn ? ['expo-apple-authentication'] : []),
+      ...(appleSignIn ? ['expo-apple-authentication'] : ['./plugins/withoutAppleSignIn']),
       'expo-secure-store',
       ...(googleUrlScheme
         ? [['@react-native-google-signin/google-signin', { iosUrlScheme: googleUrlScheme }] as [string, any]]
