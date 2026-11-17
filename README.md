@@ -44,6 +44,24 @@ pnpm --filter mobile web     # browser preview at http://localhost:8081 (doesn't
 Details, including how the catalog gets into the app and why draft sets only
 show in development, are in [`apps/mobile/README.md`](apps/mobile/README.md).
 
+### Development build
+
+The app needs a development build (it uses native modules, so Expo Go isn't enough for Apple/Google sign-in). With **Xcode 26.3**:
+
+- The Swift 6 concurrency checks reject `expo-modules-jsi@58.0.23`, so the repo carries a pnpm patch at `patches/expo-modules-jsi@58.0.23.patch` (registered under `pnpm.patchedDependencies` in the root `package.json`). Remove the patch once Expo ships a fix.
+- Sign in with Apple is only compiled in when `APP_BUNDLE_ID` is set, so simulator builds need no signing.
+- Build and launch on the booted simulator: `pnpm --filter mobile ios`.
+- Second simulator (to test sync between two devices): boot it, then install the built app and open the dev client:
+
+  ```sh
+  xcrun simctl install <UDID> path/to/MasterSetTracker.app   # the .app from DerivedData / apps/mobile/ios/build
+  xcrun simctl openurl <UDID> <dev client URL printed by `pnpm --filter mobile start`>
+  ```
+
+### Plan 3 live check
+
+Run against a hosted Supabase project on two iPhone simulators with email sign-in only: sign-in with an emailed code, two-way sync between the devices, card prices on the set screen, local-scope sign-out, and re-sign-in all worked. Screenshots are in [`docs/screenshots/plan-3/`](docs/screenshots/plan-3/); setup notes (SMTP, code length, deploy) are in [`docs/setup/accounts-and-backend.md`](docs/setup/accounts-and-backend.md).
+
 ### Tests and type checks
 
 ```sh
