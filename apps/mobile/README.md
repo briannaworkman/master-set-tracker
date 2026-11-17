@@ -14,9 +14,14 @@ All commands below run from the repository root. Run `pnpm install` once first.
 pnpm --filter mobile ios
 ```
 
-This starts the dev server and opens the app in Expo Go on the booted
-simulator (Expo Go is installed on the simulator the first time). Marks are
+This builds a development build (`expo run:ios`, which generates the git-ignored
+`apps/mobile/ios` folder) and opens it on the booted simulator. Marks are
 saved in real SQLite, so they survive closing and reopening the app.
+
+Sign in with Apple is enabled automatically once `APP_BUNDLE_ID` is filled in
+`apps/mobile/.env` (it needs an Apple Developer account and code signing).
+Without it the simulator build works with email and Google sign-in only. After
+changing `APP_BUNDLE_ID`, rebuild: `rm -rf apps/mobile/ios && pnpm --filter mobile ios`.
 
 ### Expo Go on your phone
 

@@ -34,6 +34,8 @@ Needed for Sign in with Apple, for running the app with native sign-in, and late
 
 Send Claude: the bundle identifier and the Team ID.
 
+Sign in with Apple is enabled automatically once `APP_BUNDLE_ID` is filled in (`apps/mobile/.env`); until then the app builds without it, so the simulator needs no code signing. After changing `APP_BUNDLE_ID` you must rebuild the native app: `rm -rf apps/mobile/ios && pnpm --filter mobile ios`.
+
 ## 3. Google sign-in (free)
 
 1. In [Google Cloud Console](https://console.cloud.google.com/), create a project (e.g. "Master Set Tracker").
@@ -124,14 +126,14 @@ The daily price refresh is called by a scheduled database job with a random secr
 4. Create the database tables and the daily schedule. Type the database password again if asked:
 
    ```bash
-   npx supabase db push
+   npx supabase db push --remote
    ```
    Check the schedule exists: in **SQL Editor**, run `select jobname, schedule from cron.job;`. It should list `refresh-prices-daily` with `0 9 * * *`. If it's empty, the Vault secrets from step 3 were missing when the tables were created: create them, then run the one-off `cron.schedule(...)` SQL from the header of `supabase/migrations/20261116000002_prices.sql`.
 5. Deploy the two backend functions:
 
    ```bash
-   npx supabase functions deploy refresh-prices
-   npx supabase functions deploy delete-account
+   npx supabase functions deploy refresh-prices --use-api
+   npx supabase functions deploy delete-account --use-api
    ```
 
 6. Fill the prices once now instead of waiting for 09:00 UTC. In **SQL Editor**, run (the secret is read inside the database and never shown):

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, useColorScheme, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { googleAvailable, loadApple, signInWithApple, signInWithGoogle } from '../src/auth/providers';
+import { appleSignInEnabled } from '../src/backend/config';
 import { getSupabase } from '../src/backend/supabase';
 import { useTheme } from '../src/theme/useTheme';
 
@@ -18,7 +19,7 @@ export default function SignInScreen() {
   const inFlight = useRef(false);
 
   useEffect(() => {
-    if (Platform.OS !== 'ios') return;
+    if (Platform.OS !== 'ios' || !appleSignInEnabled()) return;
     let live = true;
     loadApple()
       .isAvailableAsync()

@@ -1,3 +1,5 @@
+import Constants from 'expo-constants';
+
 export interface BackendConfig {
   supabaseUrl: string;
   supabaseAnonKey: string;
@@ -39,3 +41,8 @@ export const backendConfig: BackendConfig = readBackendConfig({
   EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
   EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
 });
+
+/** True when this build was configured with Sign in with Apple (app.config.ts sets extra.appleSignIn once APP_BUNDLE_ID is set). */
+export function appleSignInEnabled(): boolean {
+  return Constants.expoConfig?.extra?.appleSignIn === true;
+}

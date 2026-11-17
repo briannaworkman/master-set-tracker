@@ -10,6 +10,7 @@ jest.mock('../auth/AuthProvider', () => ({
 jest.mock('../backend/supabase', () => ({ getSupabase: () => ({ auth: {} }) }));
 jest.mock('../backend/config', () => ({
   backendConfig: { googleIosClientId: null, googleWebClientId: null, supabaseUrl: '', supabaseAnonKey: '' },
+  appleSignInEnabled: () => false,
 }));
 jest.mock('expo-splash-screen', () => ({ preventAutoHideAsync: jest.fn(async () => true), hideAsync: jest.fn(async () => true) }));
 jest.mock('expo-apple-authentication', () => ({ isAvailableAsync: jest.fn(async () => false) }));

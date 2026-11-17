@@ -4,6 +4,9 @@ const DEFAULT_BUNDLE_ID = 'app.mastersettracker.dev';
 
 export default ({ config }: ConfigContext): ExpoConfig => {
   let bundleId = process.env.APP_BUNDLE_ID;
+  // A real bundle id implies an Apple Developer account. Sign in with Apple forces code signing (even for simulator
+  // builds), so the entitlement and plugin are only added once APP_BUNDLE_ID is filled in.
+  const appleSignIn = Boolean(bundleId);
   if (!bundleId) {
     console.warn(`APP_BUNDLE_ID is not set; falling back to ${DEFAULT_BUNDLE_ID}. See .env.example.`);
     bundleId = DEFAULT_BUNDLE_ID;
@@ -27,7 +30,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     ios: {
       supportsTablet: true,
       bundleIdentifier: bundleId,
-      usesAppleSignIn: true,
+      ...(appleSignIn ? { usesAppleSignIn: true } : {}),
     },
     android: {
       package: bundleId,
@@ -43,6 +46,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       output: 'single',
       favicon: './assets/favicon.png',
     },
+    extra: { ...config.extra, appleSignIn },
     plugins: [
       [
         'expo-router',
@@ -56,7 +60,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       'expo-sqlite',
       'expo-image',
       'expo-dev-client',
-      'expo-apple-authentication',
+      ...(appleSignIn ? ['expo-apple-authentication'] : []),
       'expo-secure-store',
       ...(googleUrlScheme
         ? [['@react-native-google-signin/google-signin', { iosUrlScheme: googleUrlScheme }] as [string, any]]

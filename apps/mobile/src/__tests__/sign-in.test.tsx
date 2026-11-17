@@ -27,10 +27,12 @@ const mockClient = {
 jest.mock('../backend/supabase', () => ({ getSupabase: () => mockClient }));
 
 const mockConfig = { googleIosClientId: 'ios-id' as string | null, googleWebClientId: 'web-id' as string | null };
+let mockAppleEnabled = true;
 jest.mock('../backend/config', () => ({
   get backendConfig() {
     return mockConfig;
   },
+  appleSignInEnabled: () => mockAppleEnabled,
 }));
 
 jest.mock('expo-splash-screen', () => ({ preventAutoHideAsync: jest.fn(async () => true), hideAsync: jest.fn(async () => true) }));
@@ -73,6 +75,7 @@ const ERROR = "Couldn't sign in. Check your connection and try again.";
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockAppleEnabled = true;
   mockConfig.googleIosClientId = 'ios-id';
   mockConfig.googleWebClientId = 'web-id';
   mockClient.auth.signInWithIdToken.mockResolvedValue({ error: null });
@@ -180,6 +183,18 @@ describe('sign-in screen', () => {
 
   it('hides the Apple button when Apple sign-in is unavailable', async () => {
     (Apple.isAvailableAsync as jest.Mock).mockResolvedValueOnce(false);
+    await render(
+      <TestProviders>
+        <SignInScreen />
+      </TestProviders>,
+    );
+    expect(screen.queryByText('Apple button')).toBeNull();
+    expect(screen.getByLabelText('Continue with Google')).toBeOnTheScreen();
+  });
+
+  it('hides the Apple button when the build has Apple sign-in disabled, even if available', async () => {
+    mockAppleEnabled = false;
+    (Apple.isAvailableAsync as jest.Mock).mockResolvedValue(true);
     await render(
       <TestProviders>
         <SignInScreen />
