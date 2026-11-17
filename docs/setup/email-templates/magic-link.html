@@ -1,0 +1,47 @@
+<!-- Supabase: Authentication → Emails → Templates → Magic Link
+     Subject: Your Master Set Tracker code: {{ .Token }} -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="supported-color-schemes" content="light dark">
+  <title>Your sign-in code</title>
+</head>
+<body style="margin:0; padding:0; background-color:#F3F0EA; -webkit-text-size-adjust:100%;">
+  <div style="display:none; max-height:0; overflow:hidden; opacity:0;">Your code is {{ .Token }}. It expires in an hour.</div>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#F3F0EA;">
+    <tr>
+      <td align="center" style="padding:40px 16px;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:480px;">
+          <tr>
+            <td style="padding:0 4px 20px 4px; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:15px; font-weight:700; letter-spacing:-0.01em; color:#1D1B18;">
+              Master Set Tracker
+            </td>
+          </tr>
+          <tr>
+            <td style="background-color:#FFFFFF; border:1px solid #E7E3DA; border-radius:16px; padding:36px 32px; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; color:#1D1B18;">
+              <h1 style="margin:0 0 8px 0; font-size:22px; line-height:28px; font-weight:700; letter-spacing:-0.01em;">Welcome back</h1>
+              <p style="margin:0 0 28px 0; font-size:15px; line-height:22px; color:#5F5A52;">Type this code into the app to sign in.</p>
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td align="center" style="background-color:#FBFAF7; border:1px solid #E7E3DA; border-radius:12px; padding:20px 12px;">
+                    <span style="font-family:'SF Mono', Menlo, Consolas, 'Courier New', monospace; font-size:34px; line-height:40px; font-weight:700; letter-spacing:10px; color:#1D1B18;">{{ .Token }}</span>
+                  </td>
+                </tr>
+              </table>
+              <p style="margin:24px 0 0 0; font-size:13px; line-height:20px; color:#7A756C;">The code expires in an hour. If you didn't ask for it, you can ignore this email. Nobody can sign in without the code.</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:20px 4px 0 4px; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:12px; line-height:18px; color:#9A9388;">
+              Sent because someone entered {{ .Email }} in Master Set Tracker.
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
