@@ -10,7 +10,7 @@ Secrets rule: **never paste a secret into chat.** Anything marked *secret* goes 
 
 1. Sign up at [supabase.com](https://supabase.com) and create a new project. Pick a region near you and save the database password in your password manager (*secret*: you type it into the terminal in step 7; never paste it into chat).
 2. Note the **project ref** (*public*): **Project Settings → General → Project ID**, e.g. `abcd1234`. The **Project URL** (*public*) is `https://<project ref>.supabase.co`, e.g. `https://abcd1234.supabase.co` (the dashboard's **Connect** button shows it too).
-3. Open **Project Settings → API Keys** and copy the **publishable key** (or, on the *Legacy API keys* tab, the **anon** key) (*public*: it ships inside the app).
+3. Open **Project Settings → API Keys** and copy the **publishable key** (on the *Legacy API keys* tab it is called the *anon* key; the app's `EXPO_PUBLIC_SUPABASE_ANON_KEY` variable takes either) (*public*: it ships inside the app).
    Leave the **secret / service_role key** where it is (*secret*). The backend reads it automatically; nobody needs to copy it.
 4. In a terminal in the project folder, sign the Supabase command-line tool in to your account (it opens your browser):
 
@@ -20,7 +20,7 @@ Secrets rule: **never paste a secret into chat.** Anything marked *secret* goes 
 
 Free projects pause after about a week without activity. If the app stops syncing after a break (it keeps working offline), open the project in the dashboard and click **Restore project**; it's back within a few minutes and the app syncs again on its own.
 
-Send Claude: the Project URL, the anon key, and the project ref.
+Send Claude: the Project URL, the publishable key, and the project ref.
 
 ## 2. Apple Developer Program ($99/year)
 
@@ -49,30 +49,29 @@ Send Claude: the iOS client ID and the Web client ID (not the secret).
 
 ## 4. Email sign-in codes
 
-The app signs in with a 6-digit code typed into the app, so no email link ever has to open it. Supabase sends a **new** user the *Confirm signup* email and a **returning** user the *Magic Link* email, so both need the code.
+The app signs in with a numeric code typed into the app, so no email link ever has to open it. Supabase sends a **new** user the *Confirm signup* email and a **returning** user the *Magic Link* email, so both need the code.
 
-1. **Authentication → Emails → Templates → Confirm signup**: set it to, for example:
-   - Subject: `Your Master Set Tracker code`
-   - Body:
+### Custom SMTP (required to edit templates)
 
-     ```html
-     <h2>Welcome to Master Set Tracker</h2>
-     <p>Your sign-in code is <strong>{{ .Token }}</strong></p>
-     <p>Type it into the app. It expires in an hour. If you didn't ask for it, you can ignore this email.</p>
-     ```
-2. **Authentication → Emails → Templates → Magic Link**: the same, for example:
-   - Subject: `Your Master Set Tracker code`
-   - Body:
+Supabase only lets you edit email templates once a custom SMTP server is configured. Resend's free tier works:
 
-     ```html
-     <h2>Sign in to Master Set Tracker</h2>
-     <p>Your sign-in code is <strong>{{ .Token }}</strong></p>
-     <p>Type it into the app. It expires in an hour. If you didn't ask for it, you can ignore this email.</p>
-     ```
+1. Create a [Resend](https://resend.com) account and an **API key** (*secret*: you type it into Supabase only; never paste it into chat).
+2. In Supabase: **Authentication → Emails → SMTP Settings → Enable custom SMTP** and fill in:
+   - Host `smtp.resend.com`, port `465`, username `resend`, password = the Resend API key.
+   - Sender email **`onboarding@resend.dev`** and any sender name.
+3. Sender and recipient rules until you own a domain:
+   - The sender **must** be `onboarding@resend.dev`. A sender on a domain you haven't verified (for example a `gmail.com` address) fails with Resend `550 domain is not verified`.
+   - Resend's test sender only delivers to the **email address of your Resend account**, so only that address can receive codes.
+   - **Verify a domain you own in Resend (Domains) before other people sign in, then switch the sender to an address on that domain.**
+
+### Templates and code length
+
+1. **Authentication → Emails → Templates → Confirm signup**: paste `docs/setup/email-templates/confirm-signup.html` and use the subject from its first line (`Welcome to Master Set Tracker: your code is {{ .Token }}`).
+2. **Authentication → Emails → Templates → Magic Link**: paste `docs/setup/email-templates/magic-link.html` and use the subject from its first line (`Your Master Set Tracker code: {{ .Token }}`).
    Save each template. `{{ .Token }}` must appear exactly like that (with the spaces and the dot).
-3. **Authentication → Sign In / Providers → Email**: check that **Email OTP Length** is `6` (the app's code field takes 6 digits), and leave **Confirm email** on.
+3. **Authentication → Sign In / Providers → Email**: set **Email OTP Length** and leave **Confirm email** on. Supabase's default is **8**, but the app's code field defaults to **6**: **Email OTP Length must equal `EXPO_PUBLIC_EMAIL_OTP_LENGTH`** (6 if unset; allowed 6 to 10). If they differ, codes are truncated and rejected. Either set Supabase to 6, or set `EXPO_PUBLIC_EMAIL_OTP_LENGTH` in `apps/mobile/.env` to match Supabase and restart Expo.
 
-The free plan's built-in email sender is rate-limited (a few emails an hour). That's fine for development; add your own SMTP provider before launch.
+Without custom SMTP the built-in sender is rate-limited (a few emails an hour) and its templates can't be edited.
 
 ## 5. Your Mac: CocoaPods
 
@@ -126,10 +125,11 @@ The daily price refresh is called by a scheduled database job with a random secr
 4. Create the database tables and the daily schedule. Type the database password again if asked:
 
    ```bash
-   npx supabase db push --remote
+   npx supabase db push --remote   # CLI v3 targets the local Docker stack unless --remote is given
    ```
+   If it fails on `pg_cron` or `pg_net`, enable both under **Database → Extensions** in the dashboard and run it again.
    Check the schedule exists: in **SQL Editor**, run `select jobname, schedule from cron.job;`. It should list `refresh-prices-daily` with `0 9 * * *`. If it's empty, the Vault secrets from step 3 were missing when the tables were created: create them, then run the one-off `cron.schedule(...)` SQL from the header of `supabase/migrations/20261116000002_prices.sql`.
-5. Deploy the two backend functions:
+5. Deploy the two backend functions (`--use-api` deploys without Docker; the CLI asks you to confirm because this is a production project):
 
    ```bash
    npx supabase functions deploy refresh-prices --use-api
