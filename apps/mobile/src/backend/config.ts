@@ -23,8 +23,9 @@ export const DEFAULT_EMAIL_OTP_LENGTH = 6;
 /** Integer 6-10, else 6 (warning in development when a value was given but is invalid). */
 export function parseEmailOtpLength(raw: string | undefined): number {
   if (raw === undefined || raw.trim() === '') return DEFAULT_EMAIL_OTP_LENGTH;
-  const n = Number(raw.trim());
-  if (Number.isInteger(n) && n >= 6 && n <= 10) return n;
+  const trimmed = raw.trim();
+  const n = Number(trimmed);
+  if (/^\d+$/.test(trimmed) && n >= 6 && n <= 10) return n;
   if (typeof __DEV__ !== 'undefined' && __DEV__) {
     console.warn(`EXPO_PUBLIC_EMAIL_OTP_LENGTH must be an integer from 6 to 10 (got "${raw}"); using ${DEFAULT_EMAIL_OTP_LENGTH}.`);
   }
@@ -60,7 +61,10 @@ export const backendConfig: BackendConfig = readBackendConfig({
   EXPO_PUBLIC_EMAIL_OTP_LENGTH: process.env.EXPO_PUBLIC_EMAIL_OTP_LENGTH,
 });
 
-/** True when this build was configured with Sign in with Apple (app.config.ts sets extra.appleSignIn once APP_BUNDLE_ID is set). */
+/**
+ * True when this build was configured with Sign in with Apple (app.config.ts sets extra.appleSignIn once APP_BUNDLE_ID is set).
+ * Changing APP_BUNDLE_ID changes native config (entitlements, plugins), so it needs a native rebuild, not just a Metro restart.
+ */
 export function appleSignInEnabled(): boolean {
   return Constants.expoConfig?.extra?.appleSignIn === true;
 }

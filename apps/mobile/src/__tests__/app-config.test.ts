@@ -3,6 +3,8 @@ import appConfig from '../../app.config';
 const build = () => appConfig({ config: {} as never, projectRoot: '', staticConfigPath: null, packageJsonPath: null });
 const hasApplePlugin = (c: ReturnType<typeof build>) =>
   (c.plugins ?? []).some((p) => (Array.isArray(p) ? p[0] : p) === 'expo-apple-authentication');
+const hasStripPlugin = (c: ReturnType<typeof build>) =>
+  (c.plugins ?? []).some((p) => (Array.isArray(p) ? p[0] : p) === './plugins/withoutAppleSignIn');
 
 describe('app.config Sign in with Apple gating', () => {
   const original = process.env.APP_BUNDLE_ID;
@@ -30,5 +32,13 @@ describe('app.config Sign in with Apple gating', () => {
     expect(hasApplePlugin(c)).toBe(false);
     expect(c.extra?.appleSignIn).toBe(false);
     expect(warn).toHaveBeenCalled();
+  });
+
+  it('registers the strip-entitlement plugin only when APP_BUNDLE_ID is unset', () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    delete process.env.APP_BUNDLE_ID;
+    expect(hasStripPlugin(build())).toBe(true);
+    process.env.APP_BUNDLE_ID = 'com.example.mst';
+    expect(hasStripPlugin(build())).toBe(false);
   });
 });

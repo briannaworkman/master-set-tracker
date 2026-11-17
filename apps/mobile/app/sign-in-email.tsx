@@ -6,6 +6,9 @@ import { backendConfig } from '../src/backend/config';
 import { getSupabase } from '../src/backend/supabase';
 import { useTheme } from '../src/theme/useTheme';
 
+/** "an" before the number words that start with a vowel sound: 8, 11, 18. */
+const articleFor = (n: number) => (n === 8 || n === 11 || n === 18 ? 'an' : 'a');
+
 const RESEND_SECONDS = 60;
 const WRONG_CODE = "That code didn't work. Check it and try again.";
 const GENERIC_ERROR = "Couldn't sign in. Check your connection and try again.";
@@ -123,7 +126,7 @@ export default function SignInEmailScreen() {
             <Text accessibilityRole="header" style={[styles.title, { color: theme.text }]}>
               Enter your code
             </Text>
-            <Text style={[styles.hint, { color: theme.muted }]}>We sent a {codeLength}-digit code to {sentTo}.</Text>
+            <Text style={[styles.hint, { color: theme.muted }]}>We sent {articleFor(codeLength)} {codeLength}-digit code to {sentTo}.</Text>
             <TextInput
               accessibilityLabel={`${codeLength}-digit code`}
               keyboardType="number-pad"

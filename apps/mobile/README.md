@@ -23,15 +23,16 @@ Sign in with Apple is enabled automatically once `APP_BUNDLE_ID` is filled in
 Without it the simulator build works with email and Google sign-in only. After
 changing `APP_BUNDLE_ID`, rebuild: `rm -rf apps/mobile/ios && pnpm --filter mobile ios`.
 
-### Expo Go on your phone
+### Phone or second simulator (dev client)
 
 ```sh
 pnpm --filter mobile start
 ```
 
-Install **Expo Go** from the App Store or Google Play, then scan the QR code
-the command prints (iPhone: with the Camera app; Android: from inside Expo
-Go). The phone and the computer must be on the same Wi-Fi network.
+Expo Go can't run the app any more. Install the development build first (see
+[Development build](#development-build)), then start Metro and open the dev
+client; it connects to the URL the command prints. The phone and the computer
+must be on the same Wi-Fi network.
 
 ### Web preview
 
@@ -47,10 +48,10 @@ but a reload starts from empty. Use the simulator or a phone to check saving.
 
 ## Development build
 
-The app needs a development build (it uses native modules, so Expo Go isn't enough for Apple/Google sign-in). With **Xcode 26.3**:
+The app needs a development build (it uses native modules and `expo-dev-client`, so Expo Go can't run it any more). With **Xcode 26.3**:
 
 - The Swift 6 concurrency checks reject `expo-modules-jsi@58.0.23`, so the repo carries a pnpm patch at `patches/expo-modules-jsi@58.0.23.patch` (registered under `pnpm.patchedDependencies` in the root `package.json`). Remove the patch once Expo ships a fix.
-- Sign in with Apple is only compiled in when `APP_BUNDLE_ID` is set, so simulator builds need no signing.
+- The Sign in with Apple entitlement and Expo plugin are added only when `APP_BUNDLE_ID` is set (the native module is always linked), so simulator builds need no signing. Changing `APP_BUNDLE_ID` needs a native rebuild.
 - Build and launch on the booted simulator: `pnpm --filter mobile ios`.
 - Second simulator (to test sync between two devices): boot it, then install the built app and open the dev client:
 
@@ -61,7 +62,16 @@ The app needs a development build (it uses native modules, so Expo Go isn't enou
 
 ## Plan 3 live check
 
-Run against a hosted Supabase project on two iPhone simulators with email sign-in only: sign-in with an emailed code, two-way sync between the devices, card prices on the set screen, local-scope sign-out, and re-sign-in all worked. Screenshots are in [`../../docs/screenshots/plan-3/`](../../docs/screenshots/plan-3/); setup notes (SMTP, code length, deploy) are in [`docs/setup/accounts-and-backend.md`](../../docs/setup/accounts-and-backend.md).
+Ran live (email sign-in on a hosted Supabase project, two iPhone simulators): first sign-in, changes propagating A to B and B to A, prices on the set header and card detail, signing out on one device leaving the other signed in (scope `local`), and signing back in restoring the marks from the server.
+
+Covered by tests, not run live:
+- Conflict resolution by latest write (SyncEngine two-device tests and the SyncEngine against the real `push_changes`/`pull_changes` integration test, in both push orders).
+- Sign-out with unsynced changes shows the warning (account tests, including the offline scenario).
+- Upload of marks that existed before the first sign-in (the adoption tests; it can't happen live because sign-in is required on a fresh install).
+
+Pending: the Apple and Google sign-in live check (needs the owner's developer accounts).
+
+Screenshots: [set screen with prices](../../docs/screenshots/plan-3/01-set-screen-with-prices.png), [card detail with prices](../../docs/screenshots/plan-3/02-card-detail-with-prices.png), [My Sets synced](../../docs/screenshots/plan-3/03-my-sets-synced.png), [device B pulled](../../docs/screenshots/plan-3/04-device-b-pulled.png), [device B marked](../../docs/screenshots/plan-3/05-device-b-marked.png), [device A received](../../docs/screenshots/plan-3/06-device-a-received.png), [device B signed out](../../docs/screenshots/plan-3/08-device-b-signed-out.png), [device B signed back in](../../docs/screenshots/plan-3/10-device-b-signed-back-in.png) (all in [`docs/screenshots/plan-3/`](../../docs/screenshots/plan-3/)). Setup notes (SMTP, code length, deploy) are in [`docs/setup/accounts-and-backend.md`](../../docs/setup/accounts-and-backend.md).
 
 ## The card catalog
 

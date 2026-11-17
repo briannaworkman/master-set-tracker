@@ -293,7 +293,7 @@ describe('email sign-in', () => {
       await sendCode();
       const field = screen.getByLabelText('8-digit code');
       expect(field.props.maxLength).toBe(8);
-      expect(screen.getByText('We sent a 8-digit code to me@example.com.')).toBeOnTheScreen();
+      expect(screen.getByText('We sent an 8-digit code to me@example.com.')).toBeOnTheScreen();
       await fireEvent.changeText(field, '123456');
       expect(mockClient.auth.verifyOtp).not.toHaveBeenCalled();
       expect(screen.getByLabelText('Verify')).toBeDisabled();
