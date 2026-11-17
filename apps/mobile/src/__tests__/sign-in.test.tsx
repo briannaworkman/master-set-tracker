@@ -26,7 +26,7 @@ const mockClient = {
 };
 jest.mock('../backend/supabase', () => ({ getSupabase: () => mockClient }));
 
-const mockConfig = { googleIosClientId: 'ios-id' as string | null, googleWebClientId: 'web-id' as string | null };
+const mockConfig = { googleIosClientId: 'ios-id' as string | null, googleWebClientId: 'web-id' as string | null, emailOtpLength: 6 };
 let mockAppleEnabled = true;
 jest.mock('../backend/config', () => ({
   get backendConfig() {
@@ -285,6 +285,25 @@ describe('email sign-in', () => {
     await fireEvent.changeText(field, '12a34b56x7');
     expect(mockClient.auth.verifyOtp).toHaveBeenCalledTimes(1);
     expect(mockClient.auth.verifyOtp).toHaveBeenCalledWith({ email: 'me@example.com', token: '123456', type: 'email' });
+  });
+
+  it('accepts and auto-submits at the configured length (8)', async () => {
+    mockConfig.emailOtpLength = 8;
+    try {
+      await sendCode();
+      const field = screen.getByLabelText('8-digit code');
+      expect(field.props.maxLength).toBe(8);
+      expect(screen.getByText('We sent a 8-digit code to me@example.com.')).toBeOnTheScreen();
+      await fireEvent.changeText(field, '123456');
+      expect(mockClient.auth.verifyOtp).not.toHaveBeenCalled();
+      expect(screen.getByLabelText('Verify')).toBeDisabled();
+      await fireEvent.changeText(field, '12345678');
+      expect(screen.getByLabelText('Verify')).toBeEnabled();
+      expect(mockClient.auth.verifyOtp).toHaveBeenCalledTimes(1);
+      expect(mockClient.auth.verifyOtp).toHaveBeenCalledWith({ email: 'me@example.com', token: '12345678', type: 'email' });
+    } finally {
+      mockConfig.emailOtpLength = 6;
+    }
   });
 
   it('verifies with the Verify button', async () => {

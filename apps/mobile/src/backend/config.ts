@@ -5,15 +5,31 @@ export interface BackendConfig {
   supabaseAnonKey: string;
   googleIosClientId: string | null;
   googleWebClientId: string | null;
+  /** Length of the email sign-in code; must match Supabase's Email OTP Length. */
+  emailOtpLength: number;
 }
 
 type Env = Partial<Record<
   | 'EXPO_PUBLIC_SUPABASE_URL'
   | 'EXPO_PUBLIC_SUPABASE_ANON_KEY'
   | 'EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID'
-  | 'EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID',
+  | 'EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID'
+  | 'EXPO_PUBLIC_EMAIL_OTP_LENGTH',
   string
 >>;
+
+export const DEFAULT_EMAIL_OTP_LENGTH = 6;
+
+/** Integer 6-10, else 6 (warning in development when a value was given but is invalid). */
+export function parseEmailOtpLength(raw: string | undefined): number {
+  if (raw === undefined || raw.trim() === '') return DEFAULT_EMAIL_OTP_LENGTH;
+  const n = Number(raw.trim());
+  if (Number.isInteger(n) && n >= 6 && n <= 10) return n;
+  if (typeof __DEV__ !== 'undefined' && __DEV__) {
+    console.warn(`EXPO_PUBLIC_EMAIL_OTP_LENGTH must be an integer from 6 to 10 (got "${raw}"); using ${DEFAULT_EMAIL_OTP_LENGTH}.`);
+  }
+  return DEFAULT_EMAIL_OTP_LENGTH;
+}
 
 /** Validates env values; throws a clear error listing every missing required name. */
 export function readBackendConfig(env: Env): BackendConfig {
@@ -31,6 +47,7 @@ export function readBackendConfig(env: Env): BackendConfig {
     supabaseAnonKey: env.EXPO_PUBLIC_SUPABASE_ANON_KEY as string,
     googleIosClientId: env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || null,
     googleWebClientId: env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || null,
+    emailOtpLength: parseEmailOtpLength(env.EXPO_PUBLIC_EMAIL_OTP_LENGTH),
   };
 }
 
@@ -40,6 +57,7 @@ export const backendConfig: BackendConfig = readBackendConfig({
   EXPO_PUBLIC_SUPABASE_ANON_KEY: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY,
   EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
   EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
+  EXPO_PUBLIC_EMAIL_OTP_LENGTH: process.env.EXPO_PUBLIC_EMAIL_OTP_LENGTH,
 });
 
 /** True when this build was configured with Sign in with Apple (app.config.ts sets extra.appleSignIn once APP_BUNDLE_ID is set). */

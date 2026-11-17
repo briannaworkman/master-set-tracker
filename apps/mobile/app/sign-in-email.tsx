@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { InvalidCodeError, sendEmailCode, verifyEmailCode } from '../src/auth/providers';
+import { backendConfig } from '../src/backend/config';
 import { getSupabase } from '../src/backend/supabase';
 import { useTheme } from '../src/theme/useTheme';
 
@@ -15,6 +16,7 @@ export function isValidEmail(value: string): boolean {
 }
 
 export default function SignInEmailScreen() {
+  const codeLength = backendConfig.emailOtpLength;
   const theme = useTheme();
   const [email, setEmail] = useState('');
   const [sentTo, setSentTo] = useState<string | null>(null);
@@ -65,7 +67,7 @@ export default function SignInEmailScreen() {
     });
 
   const verify = (value: string) => {
-    if (!sentTo || value.length !== 6) return;
+    if (!sentTo || value.length !== codeLength) return;
     return guarded(async () => {
       try {
         await verifyEmailCode(getSupabase(), sentTo, value);
@@ -76,9 +78,9 @@ export default function SignInEmailScreen() {
   };
 
   const onCodeChange = (text: string) => {
-    const digits = text.replace(/\D/g, '').slice(0, 6);
+    const digits = text.replace(/\D/g, '').slice(0, codeLength);
     setCode(digits);
-    if (digits.length === 6) verify(digits);
+    if (digits.length === codeLength) verify(digits);
   };
 
   const inputStyle = [styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.surface }];
@@ -121,14 +123,14 @@ export default function SignInEmailScreen() {
             <Text accessibilityRole="header" style={[styles.title, { color: theme.text }]}>
               Enter your code
             </Text>
-            <Text style={[styles.hint, { color: theme.muted }]}>We sent a 6-digit code to {sentTo}.</Text>
+            <Text style={[styles.hint, { color: theme.muted }]}>We sent a {codeLength}-digit code to {sentTo}.</Text>
             <TextInput
-              accessibilityLabel="6-digit code"
+              accessibilityLabel={`${codeLength}-digit code`}
               keyboardType="number-pad"
               textContentType="oneTimeCode"
               autoComplete="one-time-code"
-              maxLength={6}
-              placeholder="123456"
+              maxLength={codeLength}
+              placeholder={'1234567890'.slice(0, codeLength)}
               placeholderTextColor={theme.muted}
               value={code}
               onChangeText={onCodeChange}
@@ -138,10 +140,10 @@ export default function SignInEmailScreen() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Verify"
-              accessibilityState={{ disabled: busy || code.length !== 6 }}
-              disabled={busy || code.length !== 6}
+              accessibilityState={{ disabled: busy || code.length !== codeLength }}
+              disabled={busy || code.length !== codeLength}
               onPress={() => verify(code)}
-              style={[styles.primary, { backgroundColor: theme.accent, opacity: busy || code.length !== 6 ? 0.5 : 1 }]}
+              style={[styles.primary, { backgroundColor: theme.accent, opacity: busy || code.length !== codeLength ? 0.5 : 1 }]}
             >
               <Text style={[styles.primaryText, { color: theme.bg }]}>Verify</Text>
             </Pressable>
