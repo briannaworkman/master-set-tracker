@@ -1,19 +1,20 @@
 diff --git a/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptObject.swift b/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptObject.swift
-index de76b9762d8f3cdd05a68fca7a01e8f1b0af973f..fba3a3ceef9a6552787f57a89c3c37a17d54733d 100644
+index de76b9762d8f3cdd05a68fca7a01e8f1b0af973f..df8e37e27b6842803d7c91d18ee0fb400d2c1229 100644
 --- a/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptObject.swift
 +++ b/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptObject.swift
-@@ -939,11 +939,13 @@ private func withEncodedValue(
+@@ -939,11 +939,14 @@ private func withEncodedValue(
      defer {
        expo.destroyValues(slot, 1)
      }
 +    // Xcode 26.3 region-isolation error; remove when expo-modules-jsi ships a fix.
-+    nonisolated(unsafe) let unsafeSlot = slot
++    let slotAddress = UInt(bitPattern: slot)
      // The runtime can't be deallocated during a call on its JavaScript thread, so it's borrowed without
      // a retain.
      try runtime._withUnsafeGuaranteedRef { runtime in
        try JavaScriptActor.assumeIsolated {
 -        try encode(JavaScriptValue.Slot(slot), runtime)
-+        try encode(JavaScriptValue.Slot(unsafeSlot), runtime)
++        let isolatedSlot = UnsafeMutablePointer<facebook.jsi.Value>(bitPattern: slotAddress)!
++        try encode(JavaScriptValue.Slot(isolatedSlot), runtime)
        }
      }
      body(slot.pointee)
